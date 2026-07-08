@@ -287,6 +287,16 @@ tr.out td{color:var(--mut);font-style:italic}
         </div>
         <div id="arcListMsg" style="font-size:12px;color:#667;margin-top:8px"></div>
       </div>
+
+      <div style="margin:10px 0;padding:12px;background:#eef6fb;border-radius:8px">
+        <div style="font-weight:700;font-size:13px;margin-bottom:8px">日次サマリ指標の同期（推移・比較用の軽量データ）</div>
+        <div class="note" style="margin-bottom:8px">明細を削除しても残る日次サマリ（DPMO推移等）をGASにバックアップ・復元します。別PCでこれを復元すれば、過去の推移をすぐ見られます。</div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <button class="btn" id="sumPush">サマリをGASへ保存</button>
+          <button class="btn" id="sumPull">GASからサマリを復元</button>
+          <span id="sumMsg" style="font-size:12px;color:#667"></span>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -472,7 +482,7 @@ function dateFromName(name){
 /* =========================================================
    IndexedDB: hfo1_ops (品質のみ永続化)
    ========================================================= */
-const DB_NAME='hfo1_ops', QSTORE='qrecords', MSTORE='qmaster', DB_VER=1;
+const DB_NAME='hfo1_ops', QSTORE='qrecords', MSTORE='qmaster', SSTORE='qsummary', DB_VER=2;
 function openDB(){
   return new Promise((res,rej)=>{
     const rq=indexedDB.open(DB_NAME,DB_VER);
@@ -483,11 +493,14 @@ function openDB(){
         os.createIndex('ds','_ds',{unique:false});
       }
       if(!d.objectStoreNames.contains(MSTORE)) d.createObjectStore(MSTORE,{keyPath:'id',autoIncrement:true});
+      // 日次サマリ指標(軽量・永続)。id = "<site>|<date>"
+      if(!d.objectStoreNames.contains(SSTORE)) d.createObjectStore(SSTORE,{keyPath:'id'});
     };
     rq.onsuccess=e=>{db=e.target.result;res(db);};
     rq.onerror=e=>rej(e);
   });
 }
+function stx(mode){ return db.transaction(SSTORE,mode).objectStore(SSTORE); }
 function qtx(mode){ return db.transaction(QSTORE,mode).objectStore(QSTORE); }
 function putMany(records){
   return new Promise((res)=>{
@@ -517,6 +530,36 @@ function getAllQual(){
 function deleteQualKeys(keys){
   return new Promise(res=>{ if(!keys.length){res(0);return;} const os=qtx('readwrite'); let done=0,del=0;
     keys.forEach(k=>{ const d=os.delete(k); d.onsuccess=()=>{del++; if(++done===keys.length)res(del);}; d.onerror=()=>{ if(++done===keys.length)res(del); }; }); });
+}
+/* ===== 日次サマリ指標(軽量・永続) ===== */
+// サマリ1件: {id:"<site>|<date>", site, date, sq,su, pmUnit,pickUnits, mfUnit, sipCnt,pmCnt}
+function putSummaries(list){
+  return new Promise(res=>{ if(!list.length){res(0);return;} const os=stx('readwrite'); let done=0;
+    list.forEach(s=>{ const r=os.put(s); r.onsuccess=()=>{ if(++done===list.length)res(list.length); }; r.onerror=()=>{ if(++done===list.length)res(list.length); }; }); });
+}
+function getAllSummaries(site){
+  return new Promise(res=>{ const out=[]; const r=stx('readonly').openCursor();
+    r.onsuccess=e=>{const c=e.target.result;if(c){ if(!site||c.value.site===site) out.push(c.value); c.continue();}else res(out);}; });
+}
+function clearSummaries(){ return new Promise(res=>{const r=stx('readwrite').clear();r.onsuccess=()=>res();}); }
+// 生レコード配列から、site×date の日次サマリを算出(上書き用)。再取込しても加算にならない。
+function computeDailySummaries(records){
+  const num=v=>{const n=parseFloat(String(v==null?'':v).replace(/,/g,''));return isFinite(n)?n:0;};
+  const map={}; // id -> summary
+  const ensure=(site,date)=>{ const id=site+'|'+date; return map[id]||(map[id]={id,site,date,sq:0,su:0,pmUnit:0,pickUnits:0,mfUnit:0,sipCnt:0,pmCnt:0}); };
+  records.forEach(r=>{
+    const date=r._date; if(!date) return;
+    const site=r._site||r.warehouse_id||r.site||''; if(!site) return;
+    const s=ensure(site,date);
+    switch(r._ds){
+      case 'sipsddr': s.sq+=num(r.quantity); s.sipCnt++; break;
+      case 'jisseki': s.su+=num(r.stowtotalunit); break;
+      case 'pickmiss': s.pmUnit+=num(r.error_unit); s.pmCnt++; break;
+      case 'unitsfloor': s.pickUnits+=num(r.units); break;
+      case 'missingfloor': s.mfUnit+=num(r.gross_units); break;
+    }
+  });
+  return Object.values(map);
 }
 function loadMaster(){
   return new Promise(res=>{
@@ -669,8 +712,35 @@ async function handleFiles(fileList){
       else logLine('対象外: '+file.name,'wn');
     }catch(err){ logLine('✕ '+file.name+'：'+err.message,'er'); }
   }
+  // 取込後: 日次サマリを再計算して上書き保存(再取込しても二重加算しない) → 古い生レコードを自動削除
+  try{ await rebuildSummariesFromDB(); }catch(e){ logLine('サマリ更新エラー: '+e.message,'er'); }
+  try{ const pruned=await pruneOldRawRecords(RAW_KEEP_WEEKS); if(pruned) logLine('古い明細を自動削除: '+pruned+'件（サマリは保持）','dim'); }catch(e){ logLine('明細削除エラー: '+e.message,'er'); }
   await refreshState();
   toast('取り込み完了');
+}
+var RAW_KEEP_WEEKS=3; // 生レコード(明細)を保持する直近週数。これより古い日は削除(サマリは残る)
+// DB内の全生レコードから日次サマリを再計算し、全上書き保存
+async function rebuildSummariesFromDB(){
+  const all=await getAllQual();
+  const sums=computeDailySummaries(all);
+  // 明細が消えた過去日のサマリは既にSSTOREにあるので、ここでは「明細が残っている日」のみ上書き。
+  // (過去日のサマリは削除しない=経過に残す)
+  if(sums.length) await putSummaries(sums);
+  return sums.length;
+}
+// 最新日から keepWeeks 週間より古い生レコードを削除
+async function pruneOldRawRecords(keepWeeks){
+  const all=await getAllQual();
+  if(!all.length) return 0;
+  const dates=all.map(r=>r._date).filter(Boolean).sort();
+  if(!dates.length) return 0;
+  const latest=dates[dates.length-1];
+  const base=new Date(latest); base.setDate(base.getDate()-keepWeeks*7);
+  const p=n=>String(n).padStart(2,'0');
+  const cutoff=base.getFullYear()+'-'+p(base.getMonth()+1)+'-'+p(base.getDate());
+  const oldKeys=all.filter(r=>r._date && r._date<cutoff).map(r=>r._k).filter(Boolean);
+  if(!oldKeys.length) return 0;
+  return await deleteQualKeys(oldKeys);
 }
 
 /* =========================================================
@@ -859,8 +929,26 @@ async function computeQuality(site, from, to, coverageChoice){
     return {date:d,su,ru,tu,ppl,sipCnt:sd.length,sq,sh,ov,dpmo:su?Math.round(sq/su*1e6):0,pmCnt:pd.length,
             pmUnit:pmU, pickUnits:pickU, mfUnit:mfU,
             workDpmo:pickU?Math.round(pmU/pickU*1e6):0,
-            shelfDpmo:pickU?Math.round(mfU/pickU*1e6):0};
+            shelfDpmo:pickU?Math.round(mfU/pickU*1e6):0,
+            fromSummary:false};
   });
+  // 明細が削除された過去日は、日次サマリ(SSTORE)から推移用に補完
+  try{
+    const rawDates=new Set(days);
+    const sums=await getAllSummaries(site);
+    sums.forEach(s=>{
+      if(rawDates.has(s.date)) return; // 明細がある日は生データ優先
+      if(from && s.date<from) return;
+      if(to && s.date>to) return;
+      daily.push({date:s.date, su:s.su, ru:0, tu:0, ppl:0, sipCnt:s.sipCnt||0, sq:s.sq, sh:0, ov:0,
+        dpmo:s.su?Math.round(s.sq/s.su*1e6):0, pmCnt:s.pmCnt||0,
+        pmUnit:s.pmUnit, pickUnits:s.pickUnits, mfUnit:s.mfUnit,
+        workDpmo:s.pickUnits?Math.round(s.pmUnit/s.pickUnits*1e6):0,
+        shelfDpmo:s.pickUnits?Math.round(s.mfUnit/s.pickUnits*1e6):0,
+        fromSummary:true});
+    });
+    daily.sort((a,b)=>a.date<b.date?-1:1);
+  }catch(e){}
 
   // 作業者別(マスタ内) — 共通期間で絞った sipV/actV/pmV を使用
   const wk={}; const ensure=l=>wk[l]||(wk[l]={stowQ:0,stowCnt:0,sh:0,ov:0,pickCnt:0});
@@ -1888,6 +1976,37 @@ async function arcRestore(){
     msg.textContent='復元完了: '+recs.length+'件取得 / 新規追加'+put.added+' 重複'+put.dup+(r.truncated?'（上限到達・四半期を指定して再取得推奨）':'');
   }catch(e){ msg.style.color='#c0392b'; msg.textContent='失敗: '+e.message; }
 }
+async function sumPush(){
+  const msg=$('#sumMsg'); msg.textContent='サマリ集計中...'; msg.style.color='#667';
+  try{
+    const cfg=arcLoadCfg();
+    if(!cfg.site) throw new Error('拠点コードを設定してください');
+    const sums=(await getAllSummaries(cfg.site));
+    if(!sums.length) throw new Error('サマリがありません（データを取り込むと生成されます）');
+    const BATCH=3000; let up=0;
+    for(let i=0;i<sums.length;i+=BATCH){
+      const chunk=sums.slice(i,i+BATCH);
+      msg.textContent='送信中 '+(i+chunk.length)+' / '+sums.length+'...';
+      const r=await arcCall('sumPush',{site:cfg.site, summaries:chunk});
+      up+=r.upserted||0;
+    }
+    msg.style.color='#2a7'; msg.textContent='サマリ保存完了: '+up+'件';
+  }catch(e){ msg.style.color='#c0392b'; msg.textContent='失敗: '+e.message; }
+}
+async function sumPull(){
+  const msg=$('#sumMsg'); msg.textContent='サマリ取得中...'; msg.style.color='#667';
+  try{
+    const cfg=arcLoadCfg();
+    if(!cfg.site) throw new Error('拠点コードを設定してください');
+    const r=await arcCall('sumPull',{site:cfg.site});
+    const sums=r.summaries||[];
+    if(!sums.length){ msg.style.color='#a70'; msg.textContent='GASにサマリがありません'; return; }
+    await putSummaries(sums);
+    await refreshState();
+    if(typeof QReport!=='undefined' && QReport){ await recalcQuality(); }
+    msg.style.color='#2a7'; msg.textContent='サマリ復元完了: '+sums.length+'件（推移に反映）';
+  }catch(e){ msg.style.color='#c0392b'; msg.textContent='失敗: '+e.message; }
+}
 
 async function init(){
   await openDB();
@@ -1929,6 +2048,8 @@ async function init(){
   if($('#arcRunAll')) $('#arcRunAll').onclick=()=>arcRunArchive(true);
   if($('#arcList')) $('#arcList').onclick=arcListQuarters;
   if($('#arcRestore')) $('#arcRestore').onclick=arcRestore;
+  if($('#sumPush')) $('#sumPush').onclick=sumPush;
+  if($('#sumPull')) $('#sumPull').onclick=sumPull;
 }
 init();
 </script>
