@@ -272,8 +272,10 @@ tr.out td{color:var(--mut);font-style:italic}
         </div>
         <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
           <button class="btn pri" id="arcRun">アーカイブ実行</button>
+          <button class="btn" id="arcRunAll">全てアーカイブ</button>
           <span id="arcRunMsg" style="font-size:12px;color:#667"></span>
         </div>
+        <div class="note" style="margin-top:6px">「全てアーカイブ」はキャッシュ内の全品質データを退避します（週数指定は無視）。</div>
       </div>
 
       <div style="margin:10px 0;padding:12px;background:#f6faf7;border-radius:8px">
@@ -1817,41 +1819,46 @@ function arcCutoffDate(keepWeeks){
   const p=n=>String(n).padStart(2,'0');
   return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate());
 }
-async function arcRunArchive(){
+async function arcRunArchive(archiveAll){
   const msg=$('#arcRunMsg'); msg.textContent='集計中...'; msg.style.color='#667';
   try{
     const cfg=arcLoadCfg();
     if(!cfg.url){ throw new Error('接続設定(GAS URL)を保存してください'); }
     if(!cfg.site){ throw new Error('拠点コードを設定してください'); }
-    const keepWeeks=Math.max(1, parseInt($('#arcKeepWeeks').value,10)||8);
-    // 最新日基準でcutoffを決める（データの最新日が今日より過去でも正しく動くよう最新日を採用）
     const all=await getAllQual();
     if(!all.length){ throw new Error('キャッシュに品質データがありません'); }
-    const dates=all.map(r=>r._date).filter(Boolean).sort();
-    const latest=dates[dates.length-1];
-    const base=new Date(latest); base.setDate(base.getDate()-keepWeeks*7);
-    const p=n=>String(n).padStart(2,'0');
-    const cutoff=base.getFullYear()+'-'+p(base.getMonth()+1)+'-'+p(base.getDate());
-    // cutoffより前(古い)を対象
-    const old=all.filter(r=>r._date && r._date < cutoff);
-    if(!old.length){ msg.style.color='#2a7'; msg.textContent='アーカイブ対象なし（直近'+keepWeeks+'週間分のみ）'; return; }
+    let target, keepWeeks;
+    if(archiveAll){
+      if(!confirm('キャッシュ内の全品質データ（'+all.length+'件）をアーカイブします。よろしいですか？')) { msg.textContent=''; return; }
+      target=all;
+    }else{
+      keepWeeks=Math.max(1, parseInt($('#arcKeepWeeks').value,10)||8);
+      // 最新日基準でcutoffを決める
+      const dates=all.map(r=>r._date).filter(Boolean).sort();
+      const latest=dates[dates.length-1];
+      const base=new Date(latest); base.setDate(base.getDate()-keepWeeks*7);
+      const p=n=>String(n).padStart(2,'0');
+      const cutoff=base.getFullYear()+'-'+p(base.getMonth()+1)+'-'+p(base.getDate());
+      target=all.filter(r=>r._date && r._date < cutoff);
+      if(!target.length){ msg.style.color='#2a7'; msg.textContent='アーカイブ対象なし（直近'+keepWeeks+'週間分のみ）'; return; }
+    }
     // バッチ分割送信(1回2000件)
     const BATCH=2000; let added=0,dup=0;
-    for(let i=0;i<old.length;i+=BATCH){
-      const chunk=old.slice(i,i+BATCH);
-      msg.textContent='送信中 '+(i+chunk.length)+' / '+old.length+' 件...';
+    for(let i=0;i<target.length;i+=BATCH){
+      const chunk=target.slice(i,i+BATCH);
+      msg.textContent='送信中 '+(i+chunk.length)+' / '+target.length+' 件...';
       const r=await arcCall('archive', {site:cfg.site, records:chunk});
       added+=r.added||0; dup+=r.dup||0;
     }
     let delMsg='';
     if($('#arcDelAfter').checked){
-      const keys=old.map(r=>r._k).filter(Boolean);
+      const keys=target.map(r=>r._k).filter(Boolean);
       const del=await deleteQualKeys(keys);
       await refreshState();
       delMsg='／ キャッシュから'+del+'件削除';
     }
     msg.style.color='#2a7';
-    msg.textContent='完了: 追加'+added+' 重複'+dup+' '+delMsg;
+    msg.textContent=(archiveAll?'[全件] ':'')+'完了: 追加'+added+' 重複'+dup+' '+delMsg;
   }catch(e){ msg.style.color='#c0392b'; msg.textContent='失敗: '+e.message; }
 }
 async function arcListQuarters(){
@@ -1918,7 +1925,8 @@ async function init(){
     try{ arcSaveCfg({url:$('#arcUrl').value.trim(), token:$('#arcToken').value.trim(), site:$('#arcSite').value.trim()}); const r=await arcCall('ping'); m.style.color='#2a7'; m.textContent='接続OK ('+r.msg+')'; }
     catch(e){ m.style.color='#c0392b'; m.textContent='接続失敗: '+e.message; }
   };
-  if($('#arcRun')) $('#arcRun').onclick=arcRunArchive;
+  if($('#arcRun')) $('#arcRun').onclick=()=>arcRunArchive(false);
+  if($('#arcRunAll')) $('#arcRunAll').onclick=()=>arcRunArchive(true);
   if($('#arcList')) $('#arcList').onclick=arcListQuarters;
   if($('#arcRestore')) $('#arcRestore').onclick=arcRestore;
 }
