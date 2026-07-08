@@ -519,20 +519,40 @@ function clearSummaries(){ return new Promise(res=>{const r=stx('readwrite').cle
 // 生レコード配列から、site×date の日次サマリを算出(上書き用)。再取込しても加算にならない。
 function computeDailySummaries(records){
   const num=v=>{const n=parseFloat(String(v==null?'':v).replace(/,/g,''));return isFinite(n)?n:0;};
+  // 生daily/KPIと同じ「マスタ内作業者のみ集計」に揃える（マスタ未登録時は全員）
+  const masterAccts=new Set((MASTER||[]).map(m=>m.アカウント).filter(Boolean));
+  const masterEmpty=masterAccts.size===0;
+  const inMaster=login=>masterEmpty || masterAccts.has(login);
   const map={}; // id -> summary
-  const ensure=(site,date)=>{ const id=site+'|'+date; return map[id]||(map[id]={id,site,date,sq:0,su:0,pmUnit:0,pickUnits:0,mfUnit:0,sipCnt:0,pmCnt:0}); };
+  const pplSet={}; // id -> Set(person)
+  const ensure=(site,date)=>{ const id=site+'|'+date; if(!map[id]){ map[id]={id,site,date,sq:0,su:0,ru:0,tu:0,sh:0,ov:0,pmUnit:0,pickUnits:0,mfUnit:0,sipCnt:0,pmCnt:0,ppl:0}; pplSet[id]=new Set(); } return map[id]; };
+  const TU_COLS=['picktotalunit','stowtotalunit','lpstowtotalunit','e2btotalunit','receivetotalunit','packtotalunit'];
   records.forEach(r=>{
     const date=r._date; if(!date) return;
     const site=r._site||r.warehouse_id||r.site||''; if(!site) return;
-    const s=ensure(site,date);
+    const s=ensure(site,date); const id=s.id;
     switch(r._ds){
-      case 'sipsddr': s.sq+=num(r.quantity); s.sipCnt++; break;
-      case 'jisseki': s.su+=num(r.stowtotalunit); break;
-      case 'pickmiss': s.pmUnit+=num(r.error_unit); s.pmCnt++; break;
-      case 'unitsfloor': s.pickUnits+=num(r.units); break;
+      case 'sipsddr':
+        if(!inMaster(r.user_logins)) break; // マスタ外は除外(生dailyと一致)
+        s.sq+=num(r.quantity); s.sipCnt++;
+        if(r.symptoms==='Shortage') s.sh+=num(r.quantity);
+        else if(r.symptoms==='Unexpected Quantity Overage') s.ov+=num(r.quantity);
+        break;
+      case 'jisseki':
+        if(!inMaster(r.person)) break;
+        s.su+=num(r.stowtotalunit);
+        s.ru+=num(r.receivetotalunit);
+        s.tu+=TU_COLS.reduce((a,c)=>a+num(r[c]),0);
+        if(r.person) pplSet[id].add(r.person);
+        break;
+      case 'pickmiss':
+        if(!inMaster(r.error_person)) break;
+        s.pmUnit+=num(r.error_unit); s.pmCnt++; break;
+      case 'unitsfloor': s.pickUnits+=num(r.units); break; // フロア分母はマスタ非依存
       case 'missingfloor': s.mfUnit+=num(r.gross_units); break;
     }
   });
+  Object.keys(map).forEach(id=>{ map[id].ppl=pplSet[id]?pplSet[id].size:0; });
   return Object.values(map);
 }
 function loadMaster(){
@@ -914,7 +934,7 @@ async function computeQuality(site, from, to, coverageChoice){
       if(rawDates.has(s.date)) return; // 明細がある日は生データ優先
       if(from && s.date<from) return;
       if(to && s.date>to) return;
-      daily.push({date:s.date, su:s.su, ru:0, tu:0, ppl:0, sipCnt:s.sipCnt||0, sq:s.sq, sh:0, ov:0,
+      daily.push({date:s.date, su:s.su, ru:s.ru||0, tu:s.tu||0, ppl:s.ppl||0, sipCnt:s.sipCnt||0, sq:s.sq, sh:s.sh||0, ov:s.ov||0,
         dpmo:s.su?Math.round(s.sq/s.su*1e6):0, pmCnt:s.pmCnt||0,
         pmUnit:s.pmUnit, pickUnits:s.pickUnits, mfUnit:s.mfUnit,
         workDpmo:s.pickUnits?Math.round(s.pmUnit/s.pickUnits*1e6):0,
@@ -1791,6 +1811,8 @@ async function saveMaster(){
     await saveMasterRow({氏名,アカウント,時間帯:時間帯||'',フォーク:フォーク||''});
   }
   await loadMaster(); $('#mask').classList.remove('on'); toast('マスタを保存しました');
+  // マスタ変更で日次サマリの集計対象が変わるため再計算
+  try{ await rebuildSummariesFromDB(); }catch(e){}
   refreshState();
   if($('#qSite')) recalcQuality();
 }
@@ -1838,6 +1860,8 @@ async function importMasterCsv(file){
   await loadMaster();
   // テキストエリアにも反映
   $('#mText').value=MASTER.map(m=>[m.氏名,m.アカウント,m.時間帯||'',m.フォーク||''].join(',')).join('\n');
+  try{ await rebuildSummariesFromDB(); }catch(e){}
+  if($('#qSite')) recalcQuality();
   toast(n+'件のマスタをCSVから取り込みました');
 }
 
