@@ -243,7 +243,7 @@ tr.out td{color:var(--mut);font-style:italic}
   <div class="modal" style="max-width:640px">
     <div class="mh"><h3>データの保存 / 共有（GAS）</h3><button class="x" id="arcClose">&times;</button></div>
     <div class="mb">
-      <div class="note">表示に必要な日次サマリ指標（DPMO推移など）をGAS(スプレッドシート)に保存します。別のPCで「取得」すれば、同じ拠点の過去の推移をすぐに見られます。明細は各PCの直近3週間分のみ保持されます。</div>
+      <div class="note">表示に必要な品質・生産性のサマリ指標（DPMO推移・UPH推移など）をGAS(スプレッドシート)に保存します。別のPCで「取得」すれば、同じ拠点の過去の推移をすぐに見られます。明細は各PCの直近3週間分のみ保持されます。</div>
 
       <div style="margin:10px 0;padding:12px;background:#f6f7fb;border-radius:8px">
         <div style="font-weight:700;font-size:13px;margin-bottom:8px">接続設定</div>
@@ -447,16 +447,16 @@ function normDate(v){
 }
 function dateFromName(name){
   const m=name.match(/Day-(\d{4})(\d{2})(\d{2})/);
-  if(m) return {label:`${m[2]}/${m[3]}`, scope:'day'};
+  if(m) return {label:`${m[2]}/${m[3]}`, scope:'day', iso:`${m[1]}-${m[2]}-${m[3]}`};
   const mm=name.match(/Month-(\d{4})(\d{2})(\d{2})/);
-  if(mm) return {label:`${mm[2]}月`, scope:'month'};
-  return {label:'月間', scope:'month'};
+  if(mm) return {label:`${mm[2]}月`, scope:'month', iso:`${mm[1]}-${mm[2]}-${mm[3]}`};
+  return {label:'月間', scope:'month', iso:''};
 }
 
 /* =========================================================
    IndexedDB: hfo1_ops (品質のみ永続化)
    ========================================================= */
-const DB_NAME='hfo1_ops', QSTORE='qrecords', MSTORE='qmaster', SSTORE='qsummary', DB_VER=2;
+const DB_NAME='hfo1_ops', QSTORE='qrecords', MSTORE='qmaster', SSTORE='qsummary', PSTORE='psummary', DB_VER=3;
 function openDB(){
   return new Promise((res,rej)=>{
     const rq=indexedDB.open(DB_NAME,DB_VER);
@@ -469,12 +469,15 @@ function openDB(){
       if(!d.objectStoreNames.contains(MSTORE)) d.createObjectStore(MSTORE,{keyPath:'id',autoIncrement:true});
       // 日次サマリ指標(軽量・永続)。id = "<site>|<date>"
       if(!d.objectStoreNames.contains(SSTORE)) d.createObjectStore(SSTORE,{keyPath:'id'});
+      // 生産性サマリ(永続)。id = 種別ごとに一意
+      if(!d.objectStoreNames.contains(PSTORE)) d.createObjectStore(PSTORE,{keyPath:'id'});
     };
     rq.onsuccess=e=>{db=e.target.result;res(db);};
     rq.onerror=e=>rej(e);
   });
 }
 function stx(mode){ return db.transaction(SSTORE,mode).objectStore(SSTORE); }
+function ptx(mode){ return db.transaction(PSTORE,mode).objectStore(PSTORE); }
 function qtx(mode){ return db.transaction(QSTORE,mode).objectStore(QSTORE); }
 function putMany(records){
   return new Promise((res)=>{
@@ -516,6 +519,56 @@ function getAllSummaries(site){
     r.onsuccess=e=>{const c=e.target.result;if(c){ if(!site||c.value.site===site) out.push(c.value); c.continue();}else res(out);}; });
 }
 function clearSummaries(){ return new Promise(res=>{const r=stx('readwrite').clear();r.onsuccess=()=>res();}); }
+/* ===== 生産性サマリ(永続) ===== */
+function putProdSummaries(list){
+  return new Promise(res=>{ if(!list.length){res(0);return;} const os=ptx('readwrite'); let done=0;
+    list.forEach(s=>{ const r=os.put(s); r.onsuccess=()=>{ if(++done===list.length)res(list.length); }; r.onerror=()=>{ if(++done===list.length)res(list.length); }; }); });
+}
+function getAllProdSummaries(){
+  return new Promise(res=>{ const out=[]; const r=ptx('readonly').openCursor();
+    r.onsuccess=e=>{const c=e.target.result;if(c){out.push(c.value);c.continue();}else res(out);}; });
+}
+function clearProdSummaries(){ return new Promise(res=>{const r=ptx('readwrite').clear();r.onsuccess=()=>res();}); }
+// 現在のS.ppr/S.frから生産性サマリ行を生成(id一意=上書きで二重加算しない)
+function buildProdSummaries(){
+  const out=[];
+  // ppr: 日付×scope×工程 ごとに vol/hrs を合算
+  const pmap={};
+  S.ppr.forEach(r=>{ const iso=r.iso||''; if(!iso) return; const id='ppr|'+iso+'|'+r.scope+'|'+r.cp;
+    if(!pmap[id]) pmap[id]={id,kind:'ppr',iso,scope:r.scope,cp:r.cp,date:r.date,vol:0,hrs:0}; pmap[id].vol+=r.vol; pmap[id].hrs+=r.hrs; });
+  Object.values(pmap).forEach(x=>out.push(x));
+  // fr: 日付×工程×社員 ごと(既に集計済みなので上書き)
+  S.fr.forEach(r=>{ const iso=r.iso||''; const id='fr|'+iso+'|'+r.process+'|'+r.empId;
+    out.push({id,kind:'fr',iso,process:r.process,empId:r.empId,name:r.name,type:r.type,units:r.units,hours:r.hours}); });
+  return out;
+}
+// 永続化されたサマリからS.ppr/S.frを復元(メモリの現状を置換)
+async function loadProdFromSummaries(){
+  const rows=await getAllProdSummaries();
+  const ppr=[], fr=[];
+  rows.forEach(s=>{
+    if(s.kind==='ppr') ppr.push({date:s.date||(s.iso?s.iso.slice(5).replace('-','/'):''),cp:s.cp,vol:s.vol,hrs:s.hrs,scope:s.scope,iso:s.iso});
+    else if(s.kind==='fr') fr.push({process:s.process,empId:s.empId,name:s.name,type:s.type,units:s.units,hours:s.hours,iso:s.iso});
+  });
+  S.ppr=ppr; S.fr=fr;
+}
+// 取込後: 現状のメモリを永続化(上書き)。再取込の二重計上を防ぐため先にメモリを重複排除
+function dedupProdMemory(){
+  // ppr: 同一 iso|scope|cp は1件に(最後の値を採用=最新取込優先)
+  const pmap={};
+  S.ppr.forEach(r=>{ const k=(r.iso||'')+'|'+r.scope+'|'+r.cp; pmap[k]=r; });
+  S.ppr=Object.values(pmap);
+  // fr: 同一 iso|process|empId は1件に
+  const fmap={};
+  S.fr.forEach(r=>{ const k=(r.iso||'')+'|'+r.process+'|'+r.empId; fmap[k]=r; });
+  S.fr=Object.values(fmap);
+}
+async function persistProd(){
+  dedupProdMemory();
+  const sums=buildProdSummaries();
+  if(sums.length) await putProdSummaries(sums);
+  return sums.length;
+}
 // 生レコード配列から、site×date の日次サマリを算出(上書き用)。再取込しても加算にならない。
 function computeDailySummaries(records){
   const num=v=>{const n=parseFloat(String(v==null?'':v).replace(/,/g,''));return isFinite(n)?n:0;};
@@ -617,7 +670,7 @@ function ingestProd(type, headers, rows, name){
   const idx={}; headers.forEach((h,i)=>idx[h.trim()]=i);
   let added=0;
   if(type==='ppr'){
-    const {label:date,scope}=dateFromName(name);
+    const {label:date,scope,iso}=dateFromName(name);
     for(let r=1;r<rows.length;r++){
       const row=rows[r];
       const cp=row[idx['Core Process']];
@@ -625,7 +678,7 @@ function ingestProd(type, headers, rows, name){
       const vol=parseFloat(row[idx['Actual Volume']])||0;
       const hrs=parseFloat(row[idx['Actual Hours']])||0;
       if(hrs<=0) continue;
-      S.ppr.push({date,cp,vol,hrs,scope}); added++;
+      S.ppr.push({date,cp,vol,hrs,scope,iso}); added++;
     }
     const stag=scope==='day'?'日別':'月間';
     S.prodFiles.push({name,type:`工程別(${stag})`,date,rows:added});
@@ -633,6 +686,7 @@ function ingestProd(type, headers, rows, name){
   } else {
     const hcol=headers.find(c=>c.trim().startsWith('Paid Hours-Total'));
     const proc=(rows[1]&&rows[1][idx['Process Name']])?rows[1][idx['Process Name']].trim():'Unknown';
+    const {iso:friso}=dateFromName(name);
     const unitsMap={},hoursMap={},info={};
     for(let r=1;r<rows.length;r++){
       const row=rows[r];
@@ -647,7 +701,7 @@ function ingestProd(type, headers, rows, name){
     }
     const empHours={};
     Object.keys(hoursMap).forEach(k=>{const id=k.split('||')[0];empHours[id]=(empHours[id]||0)+hoursMap[k];});
-    Object.keys(info).forEach(id=>{ S.fr.push({process:proc,empId:id,name:info[id].name,type:info[id].type,units:unitsMap[id]||0,hours:empHours[id]||0}); added++; });
+    Object.keys(info).forEach(id=>{ S.fr.push({process:proc,empId:id,name:info[id].name,type:info[id].type,units:unitsMap[id]||0,hours:empHours[id]||0,iso:friso}); added++; });
     S.prodFiles.push({name,type:'作業者別(FR)',date:proc,rows:added});
     logLine(`✓ ${name} → 生産性 作業者別[${proc}] ${added}名`,'ok');
   }
@@ -709,6 +763,7 @@ async function handleFiles(fileList){
   // 取込後: 日次サマリを再計算して上書き保存(再取込しても二重加算しない) → 古い生レコードを自動削除
   try{ await rebuildSummariesFromDB(); }catch(e){ logLine('サマリ更新エラー: '+e.message,'er'); }
   try{ const pruned=await pruneOldRawRecords(RAW_KEEP_WEEKS); if(pruned) logLine('古い明細を自動削除: '+pruned+'件（サマリは保持）','dim'); }catch(e){ logLine('明細削除エラー: '+e.message,'er'); }
+  try{ await persistProd(); }catch(e){ logLine('生産性サマリ保存エラー: '+e.message,'er'); }
   await refreshState();
   toast('取り込み完了');
 }
@@ -1980,35 +2035,50 @@ async function sumPush(){
     const cfg=arcLoadCfg();
     if(!cfg.site) throw new Error('拠点コードを設定してください');
     const sums=(await getAllSummaries(cfg.site));
-    if(!sums.length) throw new Error('サマリがありません（データを取り込むと生成されます）');
+    const prod=await getAllProdSummaries();
+    if(!sums.length && !prod.length) throw new Error('データがありません（取り込むと生成されます）');
+    // 品質サマリ
     const BATCH=3000; let up=0;
     for(let i=0;i<sums.length;i+=BATCH){
       const chunk=sums.slice(i,i+BATCH);
-      msg.textContent='送信中 '+(i+chunk.length)+' / '+sums.length+'...';
+      msg.textContent='品質サマリ送信 '+(i+chunk.length)+' / '+sums.length+'...';
       const r=await arcCall('sumPush',{site:cfg.site, summaries:chunk});
       up+=r.upserted||0;
     }
-    msg.style.color='#2a7'; msg.textContent='サマリ保存完了: '+up+'件';
+    // 生産性サマリ
+    let pup=0;
+    for(let i=0;i<prod.length;i+=BATCH){
+      const chunk=prod.slice(i,i+BATCH);
+      msg.textContent='生産性サマリ送信 '+(i+chunk.length)+' / '+prod.length+'...';
+      const r=await arcCall('prodPush',{site:cfg.site, rows:chunk});
+      pup+=r.upserted||0;
+    }
+    msg.style.color='#2a7'; msg.textContent='保存完了: 品質'+up+'件 / 生産性'+pup+'件';
   }catch(e){ msg.style.color='#c0392b'; msg.textContent='失敗: '+e.message; }
 }
 async function sumPull(){
-  const msg=$('#sumMsg'); msg.textContent='サマリ取得中...'; msg.style.color='#667';
+  const msg=$('#sumMsg'); msg.textContent='取得中...'; msg.style.color='#667';
   try{
     const cfg=arcLoadCfg();
     if(!cfg.site) throw new Error('拠点コードを設定してください');
     const r=await arcCall('sumPull',{site:cfg.site});
     const sums=r.summaries||[];
-    if(!sums.length){ msg.style.color='#a70'; msg.textContent='GASにサマリがありません'; return; }
-    await putSummaries(sums);
+    if(sums.length) await putSummaries(sums);
+    // 生産性
+    const pr=await arcCall('prodPull',{site:cfg.site});
+    const prows=pr.rows||[];
+    if(prows.length){ await putProdSummaries(prows); await loadProdFromSummaries(); }
     await refreshState();
     if(typeof QReport!=='undefined' && QReport){ await recalcQuality(); }
-    msg.style.color='#2a7'; msg.textContent='サマリ復元完了: '+sums.length+'件（推移に反映）';
+    if(!sums.length && !prows.length){ msg.style.color='#a70'; msg.textContent='GASにデータがありません'; return; }
+    msg.style.color='#2a7'; msg.textContent='取得完了: 品質'+sums.length+'件 / 生産性'+prows.length+'件（反映済み）';
   }catch(e){ msg.style.color='#c0392b'; msg.textContent='失敗: '+e.message; }
 }
 
 async function init(){
   await openDB();
   await loadMaster();
+  try{ await loadProdFromSummaries(); }catch(e){}
   await refreshState();
 
   const file=$('#file'), drop=$('#drop');
@@ -2026,7 +2096,7 @@ async function init(){
   if($('#detModal')) $('#detModal').addEventListener('click',e=>{ if(e.target.id==='detModal') $('#detModal').classList.remove('on'); });
   if($('#detPrint')) $('#detPrint').onclick=()=>window.print();
   $('#btnSample').onclick=()=>{ $('#mText').value='永田 大作,nagatdai,日勤,○\n成松 みよ,narimatmy,夜勤,\n北里 直樹,kitasnao,日勤,○'; $('#mask').classList.add('on'); };
-  $('#btnClearProd').onclick=async()=>{ if(!confirm('生産性データ(メモリ)をクリアしますか？')) return; S.ppr=[];S.fr=[];S.prodFiles=[]; await refreshState(); toast('生産性データをクリアしました'); };
+  $('#btnClearProd').onclick=async()=>{ if(!confirm('生産性データ(メモリ・保存済み)をクリアしますか？')) return; S.ppr=[];S.fr=[];S.prodFiles=[]; try{await clearProdSummaries();}catch(e){} await refreshState(); toast('生産性データをクリアしました'); };
   $('#btnClearQual').onclick=async()=>{ if(!confirm('品質データ(IndexedDB)を全消去しますか？この操作は取り消せません。')) return; await clearQual(); await refreshState(); QReport=null; toast('品質データをクリアしました'); };
 
   // アーカイブ / 復元
