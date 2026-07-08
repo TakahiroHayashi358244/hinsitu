@@ -445,6 +445,17 @@ function normDate(v){
   if(!m) return '';
   return m[1]+'-'+String(m[2]).padStart(2,'0')+'-'+String(m[3]).padStart(2,'0');
 }
+// GAS/スプレッドシート由来で "Fri Jul 03 2026..." 形式になってしまった日付も YYYY-MM-DD に矯正
+function normDateLoose(v){
+  if(!v) return '';
+  const iso=normDate(v); if(iso) return iso;
+  const d=new Date(v);
+  if(!isNaN(d.getTime())){
+    const p=n=>String(n).padStart(2,'0');
+    return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate());
+  }
+  return '';
+}
 function dateFromName(name){
   const m=name.match(/Day-(\d{4})(\d{2})(\d{2})/);
   if(m) return {label:`${m[2]}/${m[3]}`, scope:'day', iso:`${m[1]}-${m[2]}-${m[3]}`};
@@ -2082,10 +2093,13 @@ async function sumPull(){
     if(!cfg.site) throw new Error('拠点コードを設定してください');
     const r=await arcCall('sumPull',{site:cfg.site});
     const sums=r.summaries||[];
+    // GAS由来の日付ゆらぎ(Date型化)を矯正し、idも作り直して整合させる
+    sums.forEach(s=>{ const d=normDateLoose(s.date); if(d){ s.date=d; s.id=(s.site||cfg.site)+'|'+d; } });
     if(sums.length) await putSummaries(sums);
     // 生産性
     const pr=await arcCall('prodPull',{site:cfg.site});
     const prows=pr.rows||[];
+    prows.forEach(x=>{ const iso=normDateLoose(x.iso); if(iso){ x.iso=iso; if(x.kind==='ppr') x.id='ppr|'+iso+'|'+x.scope+'|'+x.cp; else if(x.kind==='fr') x.id='fr|'+iso+'|'+x.process+'|'+x.empId; } if(x.date) x.date=normDateLoose(x.date)||x.date; });
     if(prows.length){ await putProdSummaries(prows); await loadProdFromSummaries(); }
     await refreshState();
     if(typeof QReport!=='undefined' && QReport){ await recalcQuality(); }
