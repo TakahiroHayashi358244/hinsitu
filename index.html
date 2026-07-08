@@ -243,7 +243,7 @@ tr.out td{color:var(--mut);font-style:italic}
   <div class="modal" style="max-width:640px">
     <div class="mh"><h3>データの保存 / 共有（GAS）</h3><button class="x" id="arcClose">&times;</button></div>
     <div class="mb">
-      <div class="note">表示に必要な品質・生産性のサマリ指標（DPMO推移・UPH推移など）をGAS(スプレッドシート)に保存します。別のPCで「取得」すれば、同じ拠点の過去の推移をすぐに見られます。明細は各PCの直近3週間分のみ保持されます。</div>
+      <div class="note">表示に必要な品質・生産性のサマリ指標（DPMO推移・UPH推移など）と、欠陥明細（SIPSDDR/PickMiss/棚欠品）をGAS(スプレッドシート)に保存します。別のPCで「取得」すれば、同じ拠点の過去の推移も欠陥明細も見られます。処理データ（実績・Units）は集計値のみ保存します。</div>
 
       <div style="margin:10px 0;padding:12px;background:#f6f7fb;border-radius:8px">
         <div style="font-weight:700;font-size:13px;margin-bottom:8px">接続設定</div>
@@ -2083,7 +2083,21 @@ async function sumPush(){
       const r=await arcCall('prodPush',{site:cfg.site, rows:chunk});
       pup+=r.upserted||0;
     }
-    msg.style.color='#2a7'; msg.textContent='保存完了: 品質'+up+'件 / 生産性'+pup+'件';
+    // 欠陥明細(SIPSDDR/PickMissData/PickMissingFloor)。件数限定的なので軽量。
+    let det=[];
+    for(const dsId of ['sipsddr','pickmiss','missingfloor']){
+      const recs=(await getByDataset(dsId)).filter(r=>!cfg.site || (r._site||r.warehouse_id||r.site)===cfg.site);
+      det=det.concat(recs);
+    }
+    let dup=0, dadd=0;
+    const DBATCH=1500;
+    for(let i=0;i<det.length;i+=DBATCH){
+      const chunk=det.slice(i,i+DBATCH);
+      msg.textContent='欠陥明細送信 '+(i+chunk.length)+' / '+det.length+'...';
+      const r=await arcCall('detPush',{site:cfg.site, records:chunk});
+      dadd+=r.added||0; dup+=r.dup||0;
+    }
+    msg.style.color='#2a7'; msg.textContent='保存完了: 品質'+up+'件 / 生産性'+pup+'件 / 欠陥明細'+dadd+'件(重複'+dup+')';
   }catch(e){ msg.style.color='#c0392b'; msg.textContent='失敗: '+e.message; }
 }
 async function sumPull(){
@@ -2101,10 +2115,17 @@ async function sumPull(){
     const prows=pr.rows||[];
     prows.forEach(x=>{ const iso=normDateLoose(x.iso); if(iso){ x.iso=iso; if(x.kind==='ppr') x.id='ppr|'+iso+'|'+x.scope+'|'+x.cp; else if(x.kind==='fr') x.id='fr|'+iso+'|'+x.process+'|'+x.empId; } if(x.date) x.date=normDateLoose(x.date)||x.date; });
     if(prows.length){ await putProdSummaries(prows); await loadProdFromSummaries(); }
+    // 欠陥明細を取得してキャッシュに合算(_k重複排除)
+    let detN=0;
+    try{
+      const dr=await arcCall('detPull',{site:cfg.site});
+      const drecs=(dr.records||[]).map(r=>{ if(r._date) r._date=normDateLoose(r._date)||r._date; return r; });
+      if(drecs.length){ const put=await putMany(drecs); detN=put.added; }
+    }catch(e){}
     await refreshState();
     if(typeof QReport!=='undefined' && QReport){ await recalcQuality(); }
-    if(!sums.length && !prows.length){ msg.style.color='#a70'; msg.textContent='GASにデータがありません'; return; }
-    msg.style.color='#2a7'; msg.textContent='取得完了: 品質'+sums.length+'件 / 生産性'+prows.length+'件（反映済み）';
+    if(!sums.length && !prows.length && !detN){ msg.style.color='#a70'; msg.textContent='GASにデータがありません'; return; }
+    msg.style.color='#2a7'; msg.textContent='取得完了: 品質'+sums.length+'件 / 生産性'+prows.length+'件 / 欠陥明細'+detN+'件（反映済み）';
   }catch(e){ msg.style.color='#c0392b'; msg.textContent='失敗: '+e.message; }
 }
 
