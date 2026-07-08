@@ -1,0 +1,1928 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HFO1 品質×生産性 統合ダッシュボード</title>
+<style>
+:root{
+  --ink:#12213a; --ink2:#3a4c68; --mut:#7b8aa3; --line:#dfe5ee;
+  --panel:#ffffff; --bg:#eef2f7; --accent:#1f5fa8; --accent2:#0f9d8f;
+  --warn:#c26a1e; --bad:#c0392b; --good:#2f8f4e; --band:#f3f7fc;
+  --hd:#1f4e78; --qual:#7a4fa3; --prod:#0f9d8f;
+  --shadow:0 1px 3px rgba(20,40,80,.08),0 4px 14px rgba(20,40,80,.06);
+  --radius:12px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  font-family:-apple-system,"Segoe UI","Hiragino Kaku Gothic ProN","Noto Sans JP",Arial,sans-serif;
+  background:var(--bg); color:var(--ink); font-size:14px; line-height:1.55;
+  -webkit-font-smoothing:antialiased;
+}
+h1,h2,h3{margin:0;font-weight:700;letter-spacing:.01em}
+.wrap{max-width:1360px;margin:0 auto;padding:20px 22px 60px}
+
+/* header */
+.top{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;
+  padding-bottom:16px;border-bottom:2px solid var(--hd);margin-bottom:18px}
+.top .title{font-size:22px;color:var(--hd)}
+.top .sub{color:var(--mut);font-size:12.5px;margin-top:3px}
+.badges{display:flex;gap:8px;flex-wrap:wrap}
+.badge{display:inline-flex;align-items:center;gap:6px;background:#fff;border:1px solid var(--line);
+  border-radius:999px;padding:5px 12px;font-size:12px;color:var(--ink2)}
+.badge b{color:var(--accent)}
+.badge.q b{color:var(--qual)} .badge.p b{color:var(--prod)}
+
+/* dropzone */
+.drop{display:block;width:100%;background:var(--panel);border:2px dashed #b9c6da;border-radius:14px;padding:26px;
+  text-align:center;transition:.15s;cursor:pointer;box-shadow:var(--shadow)}
+.drop.hot{border-color:var(--accent);background:#f4f9ff}
+.drop .big{font-size:16px;font-weight:600;color:var(--ink)}
+.drop .small{color:var(--mut);font-size:12.5px;margin-top:6px}
+.drop input{display:none}
+
+/* tools */
+.tools{display:flex;gap:10px;flex-wrap:wrap;margin:14px 0}
+.btn{appearance:none;border:1px solid var(--line);background:#fff;color:var(--ink2);
+  border-radius:9px;padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer;transition:.12s}
+.btn:hover{border-color:var(--accent);color:var(--accent)}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.pri:hover{background:#184e8c;color:#fff}
+.btn.gho{background:transparent}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+
+.log{background:#0f1b30;color:#c7d6ec;border-radius:10px;padding:12px 14px;font-size:12px;
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;max-height:170px;overflow:auto;margin-top:12px;display:none}
+.log.on{display:block}
+.log .ok{color:#7fdba0}.log .er{color:#ff9c8f}.log .wn{color:#ffd27f}.log .dim{color:#7b8aa3}
+
+/* filter bar */
+.filterbar{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;background:var(--panel);
+  border:1px solid var(--line);border-radius:var(--radius);padding:12px 14px;margin-bottom:16px;box-shadow:var(--shadow)}
+.filterbar label{font-size:12px;color:var(--mut);display:block;margin-bottom:3px}
+.filterbar select,.filterbar input{border:1px solid var(--line);border-radius:8px;padding:7px 10px;font-size:13px;color:var(--ink);background:#fff}
+.filterbar .spacer{flex:1}
+
+/* tabs */
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin-bottom:18px;flex-wrap:wrap}
+.tab{appearance:none;border:none;background:transparent;padding:10px 18px;font-size:14px;font-weight:600;
+  color:var(--mut);cursor:pointer;border-bottom:2.5px solid transparent;transition:.12s;margin-bottom:-1px}
+.tab:hover{color:var(--ink2)}
+.tab.on{color:var(--hd);border-bottom-color:var(--hd)}
+.tab.qual.on{color:var(--qual);border-bottom-color:var(--qual)}
+.tab.prod.on{color:var(--prod);border-bottom-color:var(--prod)}
+.pane{display:none}
+.pane.on{display:block}
+
+/* KPI cards */
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:18px}
+.kpi{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;box-shadow:var(--shadow)}
+.kpi .lab{font-size:12px;color:var(--mut);margin-bottom:4px}
+.kpi .val{font-size:26px;font-weight:700;color:var(--ink)}
+.kpi .val small{font-size:12px;color:var(--mut);font-weight:500}
+.kpi.q{border-top:3px solid var(--qual)} .kpi.p{border-top:3px solid var(--prod)}
+.kpi.acc{border-top:3px solid var(--accent)} .kpi.acc2{border-top:3px solid var(--accent2)}
+
+/* card */
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);margin-bottom:18px;overflow:hidden}
+.card>.ch{padding:12px 16px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.card>.ch h3{font-size:14px;color:var(--hd)}
+.card>.cb{padding:16px}
+.card>.cb.flush{padding:0}
+.emptycard{background:var(--panel);border:1px dashed var(--line);border-radius:var(--radius);padding:28px;text-align:center;color:var(--mut);margin-bottom:18px}
+
+/* axis switch inside card header */
+.axisbar{display:flex;gap:6px;flex-wrap:wrap}
+.axisbtn{border:1px solid var(--line);background:#fff;color:var(--mut);border-radius:7px;padding:5px 11px;font-size:12px;font-weight:600;cursor:pointer}
+.axisbtn.on{background:var(--hd);border-color:var(--hd);color:#fff}
+.axisbtn.q.on{background:var(--qual);border-color:var(--qual)}
+.axisbtn.p.on{background:var(--prod);border-color:var(--prod)}
+.pick{border:1px solid var(--line);border-radius:7px;padding:5px 9px;font-size:12px;background:#fff;color:var(--ink)}
+
+/* table */
+.scroll{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:13px}
+thead th{background:var(--band);color:var(--ink2);font-weight:600;text-align:right;padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap;position:sticky;top:0}
+thead th.l{text-align:left}
+tbody td{padding:7px 10px;border-bottom:1px solid #eef1f6;text-align:right;white-space:nowrap}
+tbody td.l{text-align:left}
+tbody tr:hover{background:#f8fbff}
+tbody tr.rowlink{cursor:pointer}
+tbody tr.rowlink:hover{background:#eef4ff}
+tbody tr.rowlink td:first-child{position:relative}
+.kpi.metricbtn{cursor:pointer;transition:box-shadow .12s,border-color .12s}
+.kpi.metricbtn:hover{box-shadow:0 4px 14px rgba(90,60,140,.18)}
+.kpi.metricbtn.active{border-color:#7a4fa3;box-shadow:0 0 0 2px rgba(122,79,163,.35)}
+.kpi.metricbtn::after{content:'クリックで切替';position:absolute;top:8px;right:10px;font-size:10px;color:#b3bccb}
+.kpi.metricbtn.active::after{content:'表示中';color:#7a4fa3;font-weight:700}
+.kpi{position:relative}
+.ginput{padding:4px 8px;border:1px solid #d7deea;border-radius:7px;font-size:13px;color:#2a3446}
+.graphrange{background:#f7f9fc;border:1px solid #eef1f6;border-radius:8px;padding:8px 12px}
+tr.tot{font-weight:700;background:#f7f9fc}
+tr.out td{color:var(--mut);font-style:italic}
+.pill{display:inline-block;padding:1px 8px;border-radius:999px;font-size:11px;font-weight:700}
+.pill.good{background:#e5f4ea;color:var(--good)} .pill.mid{background:#fdf2e3;color:var(--warn)} .pill.bad{background:#fbe9e7;color:var(--bad)}
+
+/* chart */
+.chartwrap{width:100%;overflow-x:auto}
+.legend{display:flex;gap:14px;flex-wrap:wrap;margin-top:10px;font-size:12px;color:var(--ink2)}
+.legend .li{display:inline-flex;align-items:center;gap:6px}
+.legend .sw{width:12px;height:12px;border-radius:3px;display:inline-block}
+
+/* modal */
+.mask{position:fixed;inset:0;background:rgba(12,22,40,.5);display:none;align-items:center;justify-content:center;z-index:50;padding:20px}
+.mask.on{display:flex}
+.modal{background:#fff;border-radius:14px;max-width:680px;width:100%;max-height:82vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.3)}
+.mh{padding:14px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between}
+.mh h3{font-size:16px}
+.mb{padding:16px 18px}
+.mb textarea{width:100%;min-height:180px;border:1px solid var(--line);border-radius:9px;padding:10px;font-family:ui-monospace,Menlo,monospace;font-size:12px;resize:vertical}
+.mf{padding:12px 18px;border-top:1px solid var(--line);display:flex;gap:10px;justify-content:flex-end}
+.x{appearance:none;border:none;background:transparent;font-size:22px;color:var(--mut);cursor:pointer;line-height:1}
+.note{font-size:12px;color:var(--mut);margin-top:6px}
+
+/* toast */
+#toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(20px);background:#12213a;color:#fff;
+  padding:10px 18px;border-radius:10px;font-size:13px;opacity:0;pointer-events:none;transition:.25s;z-index:60}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.scopenote{font-size:11.5px;color:var(--mut)}
+.chartwrap.clickable{cursor:pointer;position:relative}
+.chartwrap.clickable::after{content:'クリックで詳細一覧';position:absolute;top:6px;right:8px;font-size:11px;color:#8a97ad;background:#f4f6fb;border:1px solid #e4e9f2;border-radius:6px;padding:2px 8px;pointer-events:none}
+.detTable{width:auto;min-width:100%;border-collapse:collapse;font-size:13px}
+.detTable th,.detTable td{border:1px solid #e2e8f2;padding:6px 10px;text-align:right;white-space:nowrap}
+.detTable th{background:#f5f7fb;color:#3a4c68;font-weight:600}
+.detTable td.l,.detTable th.l{text-align:left}
+.detTable tr.total td{background:#f8f9fc;font-weight:700}
+.detTable tr.out td{color:#8a97ad;font-style:italic}
+/* 2行構成: 1行目=通常列, 2行目=item_name全幅 */
+.detTable.rec2 tr.rec td{border-bottom:none}
+.detTable.rec2 tr.itemrow td.item{
+  border-top:1px dashed #d7deea;background:#fcfdff;color:#334;
+  white-space:nowrap;overflow-x:auto;max-width:0; /* max-width:0で colspanセルが表幅を押し広げないようにしスクロール */
+}
+.detTable.rec2 tr.itemrow td.item .ilabel{color:#8a97ad;font-weight:600;margin-right:4px}
+.detTable.rec2 tr.itemrow{border-bottom:2px solid #eef1f6}
+@page{ size:A4 landscape; margin:8mm; }
+@media print{
+  html,body{height:auto!important;margin:0!important;padding:0!important}
+  /* 明細モーダル以外は完全に非表示にしてレイアウト領域も消す（空白ページ防止） */
+  body > .wrap, #mask, #covModal, #toast{display:none!important}
+  #detModal{position:static!important;inset:auto!important;height:auto!important;min-height:0!important;max-height:none!important;background:#fff;display:block!important;padding:0;overflow:visible!important}
+  #detModalBox{position:static!important;max-width:none;width:100%;height:auto!important;min-height:0!important;max-height:none!important;overflow:visible!important;box-shadow:none;border-radius:0}
+  .mb{max-height:none!important;overflow:visible!important}
+  #detPrint,#detClose{display:none!important}
+  #detBody{overflow:visible!important;height:auto!important;max-height:none!important}
+  #detBody > div{overflow:visible!important}
+  #detTitle{font-size:14px}
+  #detBody h4{font-size:12px;margin:8px 0 3px}
+  /* A4横に収めるため縮小＋折返し許可 */
+  .detTable{font-size:9px;width:100%;table-layout:fixed}
+  .detTable th,.detTable td{border:1px solid #999;padding:2px 4px;word-break:break-word;white-space:normal;overflow-wrap:anywhere}
+  /* item_name の2行目は行を広げず1行固定・はみ出しは切る（省略） */
+  .detTable.rec2 tr.itemrow td.item{white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis;max-width:0}
+  .detTable .note,.note{font-size:9px}
+  tr,td,th{page-break-inside:avoid}
+  thead{display:table-header-group} /* 改ページ時に見出しを各ページ再表示 */
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="top">
+    <div>
+      <div class="title">HFO1 品質×生産性 統合ダッシュボード</div>
+      <div class="sub">DPMO（品質）と UPH（生産性）を1つのツールで。CSV / ZIP をドラッグ&ドロップ、ヘッダーで自動判別。</div>
+    </div>
+    <div class="badges" id="statusBadges"></div>
+  </div>
+
+  <div id="ingest">
+    <label class="drop" id="drop">
+      <div class="big">CSV・ZIP をドロップ、またはクリックして選択</div>
+      <div class="small">品質(SIPSDDR/PickMiss/実績 等) と 生産性(processPathReport/functionRollupReport) を混在可。ZIPは自動展開・二重ZIP対応。</div>
+      <input type="file" id="file" accept=".csv,.txt,.zip" multiple>
+    </label>
+    <div class="tools">
+      <button class="btn" id="btnMaster">氏名マスタを編集</button>
+      <button class="btn gho" id="btnSample">マスタ書式サンプル</button>
+      <button class="btn pri" id="btnBuild" disabled>ダッシュボードを表示</button>
+      <button class="btn gho" id="btnClearProd" disabled>生産性データをクリア</button>
+      <button class="btn gho" id="btnClearQual" disabled>品質データをクリア(DB)</button>
+      <button class="btn" id="btnArchive">アーカイブ / 復元</button>
+    </div>
+    <div class="log" id="log"></div>
+  </div>
+
+  <div id="dash"></div>
+</div>
+
+<!-- master modal -->
+<div class="mask" id="mask">
+  <div class="modal">
+    <div class="mh"><h3>氏名マスタ（アカウント基準の紐づけ）</h3><button class="x" id="mClose">&times;</button></div>
+    <div class="mb">
+      <div class="note">1行1名。<b>氏名,アカウント,時間帯,フォーク</b> の順（カンマ区切り）。時間帯・フォークは任意。品質DPMOはマスタ登録アカウントのみ集計し、マスタ外は別枠で参考表示します。<br><b>マスタ未登録の場合は全作業者を集計対象にします。</b></div>
+      <div style="margin:8px 0;padding:10px;background:#f6f7fb;border-radius:8px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <b style="font-size:13px">CSVから取込:</b>
+        <input type="file" id="mCsv" accept=".csv,.txt" style="font-size:13px">
+        <span style="font-size:12px;color:#667">列名「氏名 / アカウント」を自動判別（時間帯・フォーク・所属は任意）。既存マスタに追記します。</span>
+      </div>
+      <textarea id="mText" placeholder="永田 大作,nagatdai,日勤,○&#10;成松 みよ,narimatmy,夜勤,&#10;北里 直樹,kitasnao,日勤,○"></textarea>
+      <div class="mf" style="padding:12px 0 0">
+        <button class="btn pri" id="mSave">保存</button>
+        <button class="btn gho" id="mCancel">キャンセル</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- archive modal -->
+<div class="mask" id="arcMask">
+  <div class="modal" style="max-width:720px">
+    <div class="mh"><h3>アーカイブ / 復元（GAS）</h3><button class="x" id="arcClose">&times;</button></div>
+    <div class="mb">
+      <div class="note">古い品質データをGAS(スプレッドシート)に退避してブラウザを軽く保ちます。復元すると過去データを取得し、直近データと合算して表示できます。拠点ごとに保存先が分かれます。</div>
+
+      <div style="margin:10px 0;padding:12px;background:#f6f7fb;border-radius:8px">
+        <div style="font-weight:700;font-size:13px;margin-bottom:8px">接続設定</div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <label style="font-size:13px">GAS ウェブアプリ URL（/exec）<br>
+            <input type="text" id="arcUrl" placeholder="https://script.google.com/macros/s/.../exec" style="width:100%;padding:6px 8px;border:1px solid #d7deea;border-radius:6px;font-size:12px"></label>
+          <label style="font-size:13px">共有トークン（GAS側と一致・任意）<br>
+            <input type="text" id="arcToken" placeholder="未設定なら空欄" style="width:100%;padding:6px 8px;border:1px solid #d7deea;border-radius:6px;font-size:12px"></label>
+          <label style="font-size:13px">拠点コード<br>
+            <input type="text" id="arcSite" placeholder="例: HFO1" style="width:180px;padding:6px 8px;border:1px solid #d7deea;border-radius:6px;font-size:12px"></label>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <button class="btn gho" id="arcSaveCfg">設定を保存</button>
+            <button class="btn gho" id="arcPing">接続テスト</button>
+            <span id="arcCfgMsg" style="font-size:12px;color:#667"></span>
+          </div>
+        </div>
+      </div>
+
+      <div style="margin:10px 0;padding:12px;background:#fbfaf6;border-radius:8px">
+        <div style="font-weight:700;font-size:13px;margin-bottom:8px">アーカイブ（古い分を退避）</div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px">
+          直近
+          <input type="number" id="arcKeepWeeks" value="8" min="1" max="104" style="width:64px;padding:5px 6px;border:1px solid #d7deea;border-radius:6px">
+          週間をキャッシュに残し、それより古い分をアーカイブ
+          <label style="margin-left:6px"><input type="checkbox" id="arcDelAfter" checked> 送信後にキャッシュから削除</label>
+        </div>
+        <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <button class="btn pri" id="arcRun">アーカイブ実行</button>
+          <span id="arcRunMsg" style="font-size:12px;color:#667"></span>
+        </div>
+      </div>
+
+      <div style="margin:10px 0;padding:12px;background:#f6faf7;border-radius:8px">
+        <div style="font-weight:700;font-size:13px;margin-bottom:8px">復元（過去を取得してキャッシュに合算）</div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:13px">
+          <button class="btn gho" id="arcList">利用可能な四半期を確認</button>
+          <select id="arcQuarter" style="padding:5px 8px;border:1px solid #d7deea;border-radius:6px;font-size:13px"><option value="">（全四半期）</option></select>
+          <button class="btn pri" id="arcRestore">復元してキャッシュに追加</button>
+        </div>
+        <div id="arcListMsg" style="font-size:12px;color:#667;margin-top:8px"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- detail modal (品質グラフ明細) -->
+<div class="mask" id="detModal">
+  <div class="modal" id="detModalBox" style="max-width:96vw;width:96vw">
+    <div class="mh"><h3 id="detTitle">詳細一覧</h3>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button class="btn pri" id="detPrint">印刷</button>
+        <button class="x" id="detClose">&times;</button>
+      </div>
+    </div>
+    <div class="mb" id="detBody"></div>
+  </div>
+</div>
+
+<!-- coverage modal -->
+<div class="mask" id="covModal">
+  <div class="modal">
+    <div class="mh"><h3>期間カバレッジの確認</h3></div>
+    <div class="mb"><div id="covDetail"></div></div>
+    <div class="mf">
+      <button class="btn" id="covAsIs">指定期間のまま算出</button>
+      <button class="btn pri" id="covCommon">共通期間に絞って算出</button>
+      <button class="btn gho" id="covCancel">キャンセル</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+"use strict";
+
+/* =========================================================
+   HFO1 品質×生産性 統合ツール
+   - 単一HTML / ライブラリ非依存 / Excel出力なし
+   - 品質(DPMO)は IndexedDB(hfo1_ops) に永続化
+   - 生産性(PPR/FR)はセッション内メモリ保持(毎回取込)
+   - 取込は共通: ヘッダーで自動判別(品質DATASETS + PPR/FR)
+   ========================================================= */
+
+/* ---------- 共通ヘルパ ---------- */
+const $ = s => document.querySelector(s);
+const el=(t,c,txt)=>{const e=document.createElement(t);if(c)e.className=c;if(txt!=null)e.textContent=txt;return e;};
+const fmt=(n,d=1)=>(n==null||isNaN(n))?'–':Number(n).toLocaleString('ja-JP',{minimumFractionDigits:d,maximumFractionDigits:d});
+const fmtI=n=>(n==null||isNaN(n))?'–':Math.round(n).toLocaleString('ja-JP');
+const num=v=>(v===''||v==null||isNaN(v))?0:Number(v);
+function logLine(msg,cls){const L=$('#log');L.classList.add('on');const s=el('div',cls||'dim',msg);L.prepend(s);}
+function toast(msg){const t=$('#toast');t.textContent=msg;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),1900);}
+
+/* ---------- 生産性 定数(既存ツールから継承) ---------- */
+const CORE=['Receive','Stow to Prime','Pick','Pack','Ship','Outbound Prep','Transfer In and Stow'];
+const CORE_COLORS=['#1f5fa8','#0f9d8f','#c26a1e','#7b4fb0','#c0392b','#2f8f4e','#d9a406'];
+const FR_PROCS=['Each-Receive','Pack Singles','Pick','Stow to Prime'];
+
+/* ---------- 状態 ---------- */
+const S={
+  ppr:[],        // {date, cp, vol, hrs, scope:'day'|'month'}
+  fr:[],         // {process, empId, name, type, units, hours}
+  prodFiles:[],  // 生産性取込サマリ
+  view:'day',    // PPR表示スコープ
+};
+let db=null;
+let MASTER=[];   // {id,氏名,アカウント,時間帯,フォーク}
+
+/* =========================================================
+   品質 DATASETS（既存ツールのヘッダー署名をそのまま継承）
+   ========================================================= */
+const DATASETS=[
+  { id:'jisseki', label:'実績データ', color:'#0f7b6c',
+    headerSig:['warehouse_id','person','snapshot_day','picktotalunit','stowtotalunit'], prefix:[/^\d{8}$/],
+    dateField:'snapshot_day', siteField:'warehouse_id', workerField:'person', floorField:null,
+    keyFields:['warehouse_id','person','snapshot_day'],
+    numFields:['picktotalunit','stowtotalunit','lpstowtotalunit','e2btotalunit','receivetotalunit','packtotalunit'] },
+  { id:'pickmiss', label:'PickMissData', color:'#a8423a',
+    headerSig:['error_type','error_day','error_person','errror_id','pick_area_name'], prefix:[/^PickMissData/i],
+    dateField:'error_day', siteField:'warehouse_id', workerField:'error_person', floorField:'pick_area_name',
+    keyFields:['errror_id'], numFields:['error_unit','bin_level'] },
+  { id:'missingfloor', label:'PickMissingFloor', color:'#b8762a',
+    headerSig:['warehouse_id','bin_module','gross_units','source_item_id','application_name'], prefix:[/^PickMissingFloor/i],
+    dateField:'snapshot_day', siteField:'warehouse_id', workerField:null, floorField:'bin_module',
+    rowHashKey:true, keyFields:['snapshot_day','warehouse_id','bin','source_item_id','gross_units'],
+    numFields:['reporting_week','gross_units'] },
+  { id:'unitsfloor', label:'PickUnitsFloor', color:'#3a6ea5',
+    headerSig:['reporting_week','snapshot_day','warehouse_id','bin_module','units'], exactCols:5, prefix:[/^PickUnitsFloor/i],
+    dateField:'snapshot_day', siteField:'warehouse_id', workerField:null, floorField:'bin_module',
+    keyFields:['snapshot_day','warehouse_id','bin_module'], numFields:['reporting_week','units'] },
+  { id:'sipsddr', label:'SIPSDDR', color:'#7a4fa3',
+    headerSig:['defecttype','symptoms','quantity','problem_id','user_logins'], prefix:[/^SIPSDDR/i],
+    dateField:'created_date', siteField:'warehouse_id', workerField:'user_logins', floorField:null,
+    keyFields:['problem_id'], numFields:['reporting_week','quantity'] },
+  // ---- 補助(単体保持・DPMO統合しない) ----
+  { id:'asinswitch', label:'ASIN切替', color:'#5a7d2a', aux:true,
+    headerSig:['logic_name','warehouse_id','switch_day','bin_id','old_asin','new_asin'],
+    dateField:'switch_day', siteField:'warehouse_id', workerField:null, floorField:'pick_area_name',
+    rowHashKey:true, keyFields:['warehouse_id','switch_day','bin_id','old_asin','new_asin'], numFields:['old_qty','new_qty','counter'] },
+  { id:'autopending', label:'保留在庫', color:'#8a6d3b', aux:true,
+    headerSig:['bin_id','asin','fnsku','lpn','owner','warehouse_id','flip_date'],
+    dateField:'flip_date', siteField:'warehouse_id', workerField:'flip_person', floorField:null,
+    rowHashKey:true, keyFields:['bin_id','asin','lpn','flip_date'], numFields:['quantity'] },
+  { id:'vtlocation', label:'仮想ロケ移動', color:'#3b6d8a', aux:true,
+    headerSig:['snapshot_day','warehouse_id','new_bin_id','old_bin_id','person','sum'], exactCols:6,
+    dateField:'snapshot_day', siteField:'warehouse_id', workerField:'person', floorField:null,
+    rowHashKey:true, keyFields:['snapshot_day','warehouse_id','new_bin_id','old_bin_id','person'], numFields:['sum'] },
+  { id:'noexp', label:'賞味期限', color:'#8a3b6d', aux:true,
+    headerSig:['inventory_date','warehouse_id','drop_zone_name','bin_id','asin','is_expiration_dated_product'],
+    dateField:'inventory_date', siteField:'warehouse_id', workerField:null, floorField:'drop_zone_name',
+    rowHashKey:true, keyFields:['inventory_date','warehouse_id','bin_id','asin'], numFields:['quantity','fc_shelf_life'] },
+  { id:'bintouch', label:'ビンタッチ', color:'#6d6d3b', aux:true,
+    headerSig:['site','bin','pick_area_name','distributor_order_id','touch','units'], exactCols:6,
+    dateField:null, siteField:'site', workerField:null, floorField:'pick_area_name',
+    rowHashKey:true, keyFields:['site','bin','distributor_order_id'], numFields:['touch','units'] },
+];
+const DS=Object.fromEntries(DATASETS.map(d=>[d.id,d]));
+
+/* =========================================================
+   取込判別: (1)品質ヘッダー署名 → (2)生産性PPR/FR → (3)ファイル名
+   ========================================================= */
+function detectQualityByHeader(headers, filename){
+  const hset=new Set(headers);
+  for(const ds of DATASETS){
+    if(!ds.headerSig.every(h=>hset.has(h))) continue;
+    if(ds.exactCols && headers.length!==ds.exactCols) continue;
+    return ds;
+  }
+  if(filename){
+    const base=filename.replace(/\.[^.]+$/,'');
+    for(const ds of DATASETS){ for(const p of (ds.prefix||[])){ if(p.test(base)) return ds; } }
+  }
+  return null;
+}
+function detectProd(headers){
+  const h=headers.map(x=>x.trim());
+  const hasAll=arr=>arr.every(k=>h.includes(k));
+  if(hasAll(['Core Process','Actual Volume','Actual Hours'])) return 'ppr';
+  if(hasAll(['Employee Id','Name','Units']) && h.some(x=>x.startsWith('Paid Hours-Total'))) return 'fr';
+  return null;
+}
+
+/* ---------- 区切り自動判定パーサ(TSV/CSV両対応) ---------- */
+function decodeBytes(buf){
+  const bytes=new Uint8Array(buf);
+  if(bytes.length>=3&&bytes[0]===0xEF&&bytes[1]===0xBB&&bytes[2]===0xBF)
+    return new TextDecoder('utf-8').decode(bytes.subarray(3));
+  try{ return new TextDecoder('utf-8',{fatal:true}).decode(bytes); }
+  catch(e){ return new TextDecoder('shift-jis').decode(bytes); }
+}
+function sniffDelim(firstLine){
+  const t=(firstLine.match(/\t/g)||[]).length, c=(firstLine.match(/,/g)||[]).length;
+  return t>=c ? '\t' : ',';
+}
+// RFC-ish CSV(引用符対応)。delimは1文字。
+function parseDelimited(text, delim){
+  const rows=[]; let i=0,f='',row=[],q=false; const n=text.length;
+  while(i<n){
+    const ch=text[i];
+    if(q){ if(ch==='"'){ if(text[i+1]==='"'){f+='"';i+=2;continue;} q=false;i++;continue;} f+=ch;i++;continue; }
+    if(ch==='"'){q=true;i++;continue;}
+    if(ch===delim){row.push(f);f='';i++;continue;}
+    if(ch==='\r'){i++;continue;}
+    if(ch==='\n'){row.push(f);rows.push(row);row=[];f='';i++;continue;}
+    f+=ch;i++;
+  }
+  if(f.length||row.length){row.push(f);rows.push(row);}
+  return rows.filter(r=>r.length>1||(r.length===1&&r[0].trim()!==''));
+}
+function normDate(v){
+  if(!v) return '';
+  const m=String(v).match(/(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+  if(!m) return '';
+  return m[1]+'-'+String(m[2]).padStart(2,'0')+'-'+String(m[3]).padStart(2,'0');
+}
+function dateFromName(name){
+  const m=name.match(/Day-(\d{4})(\d{2})(\d{2})/);
+  if(m) return {label:`${m[2]}/${m[3]}`, scope:'day'};
+  const mm=name.match(/Month-(\d{4})(\d{2})(\d{2})/);
+  if(mm) return {label:`${mm[2]}月`, scope:'month'};
+  return {label:'月間', scope:'month'};
+}
+
+/* =========================================================
+   IndexedDB: hfo1_ops (品質のみ永続化)
+   ========================================================= */
+const DB_NAME='hfo1_ops', QSTORE='qrecords', MSTORE='qmaster', DB_VER=1;
+function openDB(){
+  return new Promise((res,rej)=>{
+    const rq=indexedDB.open(DB_NAME,DB_VER);
+    rq.onupgradeneeded=e=>{
+      const d=e.target.result;
+      if(!d.objectStoreNames.contains(QSTORE)){
+        const os=d.createObjectStore(QSTORE,{keyPath:'_k'});
+        os.createIndex('ds','_ds',{unique:false});
+      }
+      if(!d.objectStoreNames.contains(MSTORE)) d.createObjectStore(MSTORE,{keyPath:'id',autoIncrement:true});
+    };
+    rq.onsuccess=e=>{db=e.target.result;res(db);};
+    rq.onerror=e=>rej(e);
+  });
+}
+function qtx(mode){ return db.transaction(QSTORE,mode).objectStore(QSTORE); }
+function putMany(records){
+  return new Promise((res)=>{
+    if(!records.length){res({added:0,dup:0});return;}
+    const os=qtx('readwrite'); let added=0,dup=0,done=0;
+    const next=()=>{ if(++done===records.length) res({added,dup}); };
+    records.forEach(rec=>{
+      const g=os.get(rec._k);
+      g.onsuccess=()=>{ if(g.result){dup++;next();} else { const p=os.add(rec); p.onsuccess=()=>{added++;next();}; p.onerror=()=>{dup++;next();}; } };
+      g.onerror=()=>{ dup++; next(); };
+    });
+  });
+}
+function getByDataset(dsId){
+  return new Promise((res)=>{
+    const out=[]; const idx=qtx('readonly').index('ds'); const r=idx.openCursor(IDBKeyRange.only(dsId));
+    r.onsuccess=e=>{const c=e.target.result;if(c){out.push(c.value);c.continue();}else res(out);};
+  });
+}
+function countQual(){ return new Promise(res=>{const r=qtx('readonly').count();r.onsuccess=()=>res(r.result);}); }
+function clearQual(){ return new Promise(res=>{const r=qtx('readwrite').clear();r.onsuccess=()=>res();}); }
+/* アーカイブ用: 全レコード取得 / キー配列で削除 / 生レコードを重複排除して投入 */
+function getAllQual(){
+  return new Promise(res=>{ const out=[]; const r=qtx('readonly').openCursor();
+    r.onsuccess=e=>{const c=e.target.result;if(c){out.push(c.value);c.continue();}else res(out);}; });
+}
+function deleteQualKeys(keys){
+  return new Promise(res=>{ if(!keys.length){res(0);return;} const os=qtx('readwrite'); let done=0,del=0;
+    keys.forEach(k=>{ const d=os.delete(k); d.onsuccess=()=>{del++; if(++done===keys.length)res(del);}; d.onerror=()=>{ if(++done===keys.length)res(del); }; }); });
+}
+function loadMaster(){
+  return new Promise(res=>{
+    const out=[]; const r=db.transaction(MSTORE,'readonly').objectStore(MSTORE).openCursor();
+    r.onsuccess=e=>{const c=e.target.result;if(c){out.push(c.value);c.continue();}else{MASTER=out;res(out);}};
+  });
+}
+function saveMasterRow(row){ return new Promise(res=>{const r=db.transaction(MSTORE,'readwrite').objectStore(MSTORE).put(row);r.onsuccess=()=>res(r.result);}); }
+function clearMaster(){ return new Promise(res=>{const r=db.transaction(MSTORE,'readwrite').objectStore(MSTORE).clear();r.onsuccess=()=>res();}); }
+function acctName(){ const m={}; MASTER.forEach(r=>{ if(r.アカウント && !(r.アカウント in m)) m[r.アカウント]=r.氏名; }); return m; }
+
+/* ---------- キー生成(重複排除) ---------- */
+function makeKey(ds,rowObj,sourceFile,rowIdx){
+  if(ds.rowHashKey) return ds.id+'|'+sourceFile+'|'+rowIdx+'|'+JSON.stringify(rowObj);
+  const parts=ds.keyFields.map(f=>rowObj[f]!==undefined?rowObj[f]:'');
+  const joined=parts.join('|');
+  if(joined.replace(/\|/g,'')==='') return ds.id+'|'+sourceFile+'|'+rowIdx+'|'+JSON.stringify(rowObj);
+  return ds.id+'|'+joined;
+}
+
+/* =========================================================
+   1ファイル取込: 品質→DB / 生産性→メモリ
+   ========================================================= */
+async function ingestFile(name, buf){
+  const text=decodeBytes(buf);
+  const lines=text.replace(/\r\n?/g,'\n').split('\n');
+  const firstLine=(lines.find(l=>l.trim()!=='')||'');
+  const delim=sniffDelim(firstLine);
+  const rows=parseDelimited(text, delim);
+  if(!rows.length){ logLine('空ファイル: '+name,'wn'); return; }
+  const headers=rows[0].map(h=>h.trim());
+
+  // (1) 品質判別
+  const qds=detectQualityByHeader(headers, name);
+  if(qds){ await ingestQuality(qds, headers, rows, name); return; }
+
+  // (2) 生産性判別
+  const ptype=detectProd(headers);
+  if(ptype){ ingestProd(ptype, headers, rows, name); return; }
+
+  logLine('判定不可（スキップ）: '+name,'wn');
+}
+
+async function ingestQuality(ds, headers, rows, name){
+  const srcName=name.replace(/\.[^.]+$/,'');
+  const idx={}; headers.forEach((h,i)=>idx[h]=i);
+  const recs=[];
+  for(let r=1;r<rows.length;r++){
+    const arr=rows[r]; const o={};
+    headers.forEach((h,i)=>o[h]=arr[i]!==undefined?arr[i]:'');
+    const rec={ _ds:ds.id, source_file:srcName, ...o };
+    rec._date=normDate(o[ds.dateField]);
+    rec._k=makeKey(ds,o,srcName,r);
+    recs.push(rec);
+  }
+  const {added,dup}=await putMany(recs);
+  logLine('✓ '+name+' → '+ds.label+'（品質）：'+added.toLocaleString()+'件追加'+(dup?'、'+dup.toLocaleString()+'件重複':''), added?'ok':'dim');
+}
+
+function ingestProd(type, headers, rows, name){
+  const idx={}; headers.forEach((h,i)=>idx[h.trim()]=i);
+  let added=0;
+  if(type==='ppr'){
+    const {label:date,scope}=dateFromName(name);
+    for(let r=1;r<rows.length;r++){
+      const row=rows[r];
+      const cp=row[idx['Core Process']];
+      if(!CORE.includes(cp)) continue;
+      const vol=parseFloat(row[idx['Actual Volume']])||0;
+      const hrs=parseFloat(row[idx['Actual Hours']])||0;
+      if(hrs<=0) continue;
+      S.ppr.push({date,cp,vol,hrs,scope}); added++;
+    }
+    const stag=scope==='day'?'日別':'月間';
+    S.prodFiles.push({name,type:`工程別(${stag})`,date,rows:added});
+    logLine(`✓ ${name} → 生産性 工程別[${stag}][${date}] ${added}行`,'ok');
+  } else {
+    const hcol=headers.find(c=>c.trim().startsWith('Paid Hours-Total'));
+    const proc=(rows[1]&&rows[1][idx['Process Name']])?rows[1][idx['Process Name']].trim():'Unknown';
+    const unitsMap={},hoursMap={},info={};
+    for(let r=1;r<rows.length;r++){
+      const row=rows[r];
+      const id=row[idx['Employee Id']]; if(!id) continue;
+      const nm=row[idx['Name']]||'', tp=row[idx['Employee Type']]||'';
+      const fn=row[idx['Function Name']]||'', size=row[idx['Size']]||'';
+      const units=parseFloat(row[idx['Units']])||0;
+      const hrs=parseFloat(row[idx[hcol.trim()]])||0;
+      info[id]={name:nm,type:tp};
+      if(['Small','Medium','Large','HeavyBulky'].includes(size)) unitsMap[id]=(unitsMap[id]||0)+units;
+      const key=id+'||'+fn; hoursMap[key]=Math.max(hoursMap[key]||0,hrs);
+    }
+    const empHours={};
+    Object.keys(hoursMap).forEach(k=>{const id=k.split('||')[0];empHours[id]=(empHours[id]||0)+hoursMap[k];});
+    Object.keys(info).forEach(id=>{ S.fr.push({process:proc,empId:id,name:info[id].name,type:info[id].type,units:unitsMap[id]||0,hours:empHours[id]||0}); added++; });
+    S.prodFiles.push({name,type:'作業者別(FR)',date:proc,rows:added});
+    logLine(`✓ ${name} → 生産性 作業者別[${proc}] ${added}名`,'ok');
+  }
+}
+
+/* ---------- ZIP(再帰・二重zip) ---------- */
+async function readZip(buf){
+  const dv=new DataView(buf); const u8=new Uint8Array(buf); const out=[];
+  let eocd=-1;
+  for(let i=u8.length-22;i>=0;i--){ if(dv.getUint32(i,true)===0x06054b50){eocd=i;break;} }
+  if(eocd<0) throw new Error('ZIP EOCD not found');
+  let cnt=dv.getUint16(eocd+10,true), off=dv.getUint32(eocd+16,true);
+  for(let k=0;k<cnt;k++){
+    if(dv.getUint32(off,true)!==0x02014b50) break;
+    const method=dv.getUint16(off+10,true), csize=dv.getUint32(off+20,true);
+    const nlen=dv.getUint16(off+28,true), elen=dv.getUint16(off+30,true), clen=dv.getUint16(off+32,true);
+    const lho=dv.getUint32(off+42,true);
+    const fname=new TextDecoder('utf-8').decode(u8.slice(off+46,off+46+nlen));
+    const lnlen=dv.getUint16(lho+26,true), lelen=dv.getUint16(lho+28,true);
+    const dataStart=lho+30+lnlen+lelen;
+    out.push({fname,method,comp:u8.slice(dataStart,dataStart+csize)});
+    off+=46+nlen+elen+clen;
+  }
+  const files=[];
+  for(const f of out){
+    if(f.fname.endsWith('/')) continue;
+    let data;
+    if(f.method===0) data=f.comp;
+    else if(f.method===8){
+      const ds=new DecompressionStream('deflate-raw');
+      const stream=new Response(f.comp).body.pipeThrough(ds);
+      data=new Uint8Array(await new Response(stream).arrayBuffer());
+    } else { logLine('未対応圧縮方式('+f.method+'): '+f.fname,'wn'); continue; }
+    files.push({fname:f.fname,data});
+  }
+  return files;
+}
+async function processZip(buf, depth){
+  if(depth>5){ logLine('⚠ ZIPの入れ子が深すぎ(5階層まで)','er'); return; }
+  const inner=await readZip(buf);
+  for(const f of inner){
+    const nm=f.fname.split('/').pop();
+    if(/\.zip$/i.test(nm)){
+      await processZip(f.data.buffer.slice(f.data.byteOffset,f.data.byteOffset+f.data.byteLength), depth+1);
+    } else if(/\.(csv|txt)$/i.test(nm)){
+      await ingestFile(nm, f.data.buffer.slice(f.data.byteOffset,f.data.byteOffset+f.data.byteLength));
+    }
+  }
+}
+async function handleFiles(fileList){
+  for(const file of fileList){
+    const lower=file.name.toLowerCase();
+    try{
+      if(lower.endsWith('.zip')){ logLine('ZIP展開: '+file.name,'dim'); await processZip(await file.arrayBuffer(),0); }
+      else if(lower.endsWith('.csv')||lower.endsWith('.txt')){ await ingestFile(file.name, await file.arrayBuffer()); }
+      else logLine('対象外: '+file.name,'wn');
+    }catch(err){ logLine('✕ '+file.name+'：'+err.message,'er'); }
+  }
+  await refreshState();
+  toast('取り込み完了');
+}
+
+/* =========================================================
+   状態バッジ / ボタン活性
+   ========================================================= */
+async function refreshState(){
+  const qn=db?await countQual():0;
+  const hasProd=S.ppr.length||S.fr.length;
+  $('#btnBuild').disabled=!(qn||hasProd);
+  $('#btnClearProd').disabled=!hasProd;
+  $('#btnClearQual').disabled=!qn;
+  const b=$('#statusBadges'); b.innerHTML='';
+  const mk=(lab,val,cls)=>{const e=el('span','badge'+(cls?' '+cls:''));e.innerHTML=`${lab} <b>${val}</b>`;return e;};
+  if(qn) b.appendChild(mk('品質レコード',fmtI(qn),'q'));
+  const days=[...new Set(S.ppr.filter(r=>r.scope==='day').map(r=>r.date))].length;
+  if(days) b.appendChild(mk('生産性 日別',days+'日','p'));
+  if(S.ppr.some(r=>r.scope==='month')) b.appendChild(mk('生産性 月間','あり','p'));
+  if(S.fr.length) b.appendChild(mk('作業者',new Set(S.fr.map(r=>r.name)).size,'p'));
+  const mc=Object.keys(acctName()).length;
+  if(mc) b.appendChild(mk('マスタ',mc));
+}
+
+/* =========================================================
+   品質: サイト一覧 & DPMOレポート算出
+   ========================================================= */
+async function listSites(){
+  const set=new Set();
+  for(const ds of DATASETS){
+    const recs=await getByDataset(ds.id);
+    recs.forEach(r=>{ const s=r[ds.siteField]; if(s) set.add(s); });
+  }
+  return [...set].sort();
+}
+function siteFilter(recs,ds,site){ return recs.filter(r=>!site||r[ds.siteField]===site); }
+function inPeriod(rec,from,to){
+  if(from&&(!rec._date||rec._date<from)) return false;
+  if(to&&(!rec._date||rec._date>to)) return false;
+  return true;
+}
+
+/* 品質レポート算出。既存 generateQualityReport のロジックを移植し、
+   出力先を Excel から「数値オブジェクト」に変更（ダッシュボードで描画）。 */
+async function computeQuality(site, from, to, coverageChoice){
+  let data={};
+  for(const ds of DATASETS){
+    let recs=await getByDataset(ds.id);
+    recs=siteFilter(recs,ds,site).filter(r=>inPeriod(r,from,to));
+    data[ds.id]=recs;
+  }
+  // 期間カバレッジ検出
+  const datesOf=rows=>[...new Set(rows.map(r=>r._date).filter(Boolean))].sort();
+  const interC=(a,b)=>a.filter(x=>b.includes(x));
+  const mism=[];
+  const checkPair=(label,numD,denD)=>{
+    if(numD.length===0&&denD.length===0) return;
+    const aligned=numD.length===denD.length&&numD.every((d,i)=>d===denD[i]);
+    if(!aligned) mism.push({label,numD,denD,both:interC(numD,denD)});
+  };
+  // 指標ごとに分子・分母のペアを定義（unitsfloorは棚欠品と作業ミスの両方の分母を兼ねる）
+  const jStow=(data.jisseki||[]).filter(r=>num(r.stowtotalunit)>0);
+  checkPair('Stow DPMO', datesOf(data.sipsddr), datesOf(jStow));
+  checkPair('Pick品質(棚欠品)', datesOf(data.missingfloor), datesOf(data.unitsfloor));
+  checkPair('Pick品質(作業ミス)', datesOf(data.pickmiss), datesOf(data.unitsfloor));
+
+  let narrowed=false;
+  // 指標ごとの許容日集合（'common'選択時のみ設定。未設定＝全期間許可）
+  // metric別に独立して共通期間を適用する（1指標が重複なしでも他指標に波及しない）
+  const allow={ stow:null, shelf:null, work:null }; // Set of _date or null
+  if(mism.length){
+    const choice=coverageChoice || await showCoverageDialog(mism,from,to);
+    if(choice==='cancel') return null;
+    if(choice==='common'){
+      const label2key={ 'Stow DPMO':'stow', 'Pick品質(棚欠品)':'shelf', 'Pick品質(作業ミス)':'work' };
+      let anyNarrowed=false, allEmpty=true;
+      mism.forEach(m=>{
+        const key=label2key[m.label]; if(!key) return;
+        if(m.both.length){ allow[key]=new Set(m.both); anyNarrowed=true; allEmpty=false; }
+        else { allow[key]='empty'; } // 重複日なし＝この指標は算出不可(0件扱い)
+      });
+      narrowed=anyNarrowed;
+      if(!anyNarrowed && allEmpty) toast('いずれの指標も共通期間なし。指定期間のまま算出');
+    }
+  }
+  // 指標別フィルタ関数（allow[key]===null:全許可 / Set:その日のみ / 'empty':全排除）
+  const passMetric=(key,rec)=>{
+    const a=allow[key];
+    if(a===null||a===undefined) return true;
+    if(a==='empty') return false;
+    return rec._date && a.has(rec._date);
+  };
+
+  const effFrom=from, effTo=to;
+  // 実際に算出に使われた日付範囲を求める（全期間なら最古〜最新の実日付、共通期間なら許容日の範囲）
+  const allDates=[...new Set([
+    ...datesOf(data.sipsddr), ...datesOf(jStow),
+    ...datesOf(data.pickmiss), ...datesOf(data.missingfloor), ...datesOf(data.unitsfloor)
+  ])].filter(Boolean).sort();
+  let resolvedFrom='', resolvedTo='';
+  if(narrowed){
+    // 共通期間: 各指標の許容日(Set)を集約した実日付の範囲
+    const used=new Set();
+    ['stow','shelf','work'].forEach(k=>{ const a=allow[k]; if(a&&a!=='empty') a.forEach(d=>used.add(d)); });
+    const ud=[...used].sort();
+    resolvedFrom=ud[0]||''; resolvedTo=ud[ud.length-1]||'';
+  } else {
+    // 全期間: ユーザー指定があればそれ、無ければ実データの最古〜最新
+    resolvedFrom=from||allDates[0]||''; resolvedTo=to||allDates[allDates.length-1]||'';
+  }
+  const period=(resolvedFrom||'最古')+' 〜 '+(resolvedTo||'最新')+(narrowed?'（指標別に共通期間へ自動調整）':'');
+  const a2n=acctName();
+  const dispName=login=>(login&&a2n[login])?a2n[login]:(login?('[マスタ外] '+login):'(不明)');
+
+  // マスタ内/外分離（マスタ未登録なら全作業者を集計対象にする）
+  const masterAccts=new Set(MASTER.map(m=>m.アカウント).filter(Boolean));
+  const masterEmpty=masterAccts.size===0;
+  const inMaster=login=>masterEmpty || masterAccts.has(login);
+  const dataIn={},dataOut={};
+  for(const ds of DATASETS){
+    const wf=ds.workerField;
+    if(!wf){ dataIn[ds.id]=data[ds.id]; dataOut[ds.id]=[]; continue; }
+    dataIn[ds.id]=data[ds.id].filter(r=>inMaster(r[wf]));
+    dataOut[ds.id]=data[ds.id].filter(r=>!inMaster(r[wf]));
+  }
+  const D=Object.assign({},data,{jisseki:dataIn.jisseki,sipsddr:dataIn.sipsddr,pickmiss:dataIn.pickmiss});
+
+  const sum=(rows,col)=>rows.reduce((s,r)=>s+num(r[col]),0);
+  const act=D.jisseki;
+  const stowUnits=sum(act,'stowtotalunit'), rcvUnits=sum(act,'receivetotalunit');
+  const allUnits=['picktotalunit','stowtotalunit','lpstowtotalunit','e2btotalunit','receivetotalunit','packtotalunit'].reduce((s,c)=>s+sum(act,c),0);
+  const sip=D.sipsddr;
+  const sipQ=sum(sip,'quantity'), sipCnt=sip.length;
+  const sipSh=sip.filter(r=>r.symptoms==='Shortage').reduce((s,r)=>s+num(r.quantity),0);
+  const sipOv=sip.filter(r=>r.symptoms==='Unexpected Quantity Overage').reduce((s,r)=>s+num(r.quantity),0);
+  const pm=D.pickmiss;
+  const pmCnt=pm.length, pmUnit=sum(pm,'error_unit');
+  const uf=D.unitsfloor, mf=D.missingfloor;
+  const ufByFloor={}; uf.forEach(r=>{const f=r.bin_module||'(不明)';ufByFloor[f]=(ufByFloor[f]||0)+num(r.units);});
+  const mfByFloor={}; mf.forEach(r=>{const f=r.bin_module||'(不明)';mfByFloor[f]=(mfByFloor[f]||0)+num(r.gross_units);});
+  const pickTotalUnits=Object.values(ufByFloor).reduce((a,b)=>a+b,0);
+  const mfTotal=Object.values(mfByFloor).reduce((a,b)=>a+b,0);
+  const pmUnitByType={}; pm.forEach(r=>{const t=r.error_type||'(不明)';pmUnitByType[t]=(pmUnitByType[t]||0)+num(r.error_unit);});
+  const pmCntByType={}; pm.forEach(r=>{const t=r.error_type||'(不明)';pmCntByType[t]=(pmCntByType[t]||0)+1;});
+  const dpmo=(n,d)=>d?Math.round(n/d*1e6):0;
+
+  // ---- DPMO KPI（指標別に共通期間を適用した分子・分母で算出） ----
+  // Stow: 分子SIPSDDR / 分母 実績stowtotalunit を stow日集合で絞る
+  const sipStow=sip.filter(r=>passMetric('stow',r));
+  const actStow=act.filter(r=>passMetric('stow',r));
+  const stowUnitsM=sum(actStow,'stowtotalunit');
+  const sipQM=sum(sipStow,'quantity');
+  const stowDpmo=stowUnitsM?Math.round(sipQM/stowUnitsM*1e6):0;
+  // Pick棚欠品: 分子MissingFloor / 分母UnitsFloor を shelf日集合で絞る
+  const mfShelf=mf.filter(r=>passMetric('shelf',r));
+  const ufShelf=uf.filter(r=>passMetric('shelf',r));
+  const mfTotalM=sum(mfShelf,'gross_units');
+  const ufTotalShelf=sum(ufShelf,'units');
+  const pickShelfDpmo=dpmo(mfTotalM, ufTotalShelf);
+  // Pick作業ミス: 分子PickMissData / 分母UnitsFloor を work日集合で絞る
+  const pmWork=pm.filter(r=>passMetric('work',r));
+  const ufWork=uf.filter(r=>passMetric('work',r));
+  const pmUnitM=sum(pmWork,'error_unit');
+  const ufTotalWork=sum(ufWork,'units');
+  const pickWorkDpmo=dpmo(pmUnitM, ufTotalWork);
+
+  // 日別推移（選んだ共通期間で全体KPIと集計基準を揃える）
+  // Stow系は passMetric('stow')、Pickミスは passMetric('work') で絞った日のみ対象
+  const sipV=sip.filter(r=>passMetric('stow',r));
+  const actV=act.filter(r=>passMetric('stow',r));
+  const pmV=pm.filter(r=>passMetric('work',r));
+  const days=[...new Set([...actV,...sipV,...pmV].map(r=>r._date).filter(Boolean))].sort();
+  // フロア別Units(日別Pick分母)と棚欠品(日別)も日付で引けるよう準備
+  const ufByDate={}; uf.forEach(r=>{ if(r._date){ufByDate[r._date]=(ufByDate[r._date]||0)+num(r.units);} });
+  const mfByDate={}; mf.forEach(r=>{ if(r._date){mfByDate[r._date]=(mfByDate[r._date]||0)+num(r.gross_units);} });
+  const daily=days.map(d=>{
+    const ad=actV.filter(r=>r._date===d), sd=sipV.filter(r=>r._date===d), pd=pmV.filter(r=>r._date===d);
+    const su=sum(ad,'stowtotalunit'), ru=sum(ad,'receivetotalunit');
+    const tu=['picktotalunit','stowtotalunit','lpstowtotalunit','e2btotalunit','receivetotalunit','packtotalunit'].reduce((s,c)=>s+sum(ad,c),0);
+    const ppl=new Set(ad.map(r=>r.person)).size;
+    const sq=sum(sd,'quantity');
+    const sh=sd.filter(r=>r.symptoms==='Shortage').reduce((s,r)=>s+num(r.quantity),0);
+    const ov=sd.filter(r=>r.symptoms==='Unexpected Quantity Overage').reduce((s,r)=>s+num(r.quantity),0);
+    // Pick作業ミス日別: error_unit合計 / その日のUnitsFloor
+    const pmU=sum(pd,'error_unit');
+    const pickU=ufByDate[d]||0;
+    const mfU=mfByDate[d]||0;
+    return {date:d,su,ru,tu,ppl,sipCnt:sd.length,sq,sh,ov,dpmo:su?Math.round(sq/su*1e6):0,pmCnt:pd.length,
+            pmUnit:pmU, pickUnits:pickU, mfUnit:mfU,
+            workDpmo:pickU?Math.round(pmU/pickU*1e6):0,
+            shelfDpmo:pickU?Math.round(mfU/pickU*1e6):0};
+  });
+
+  // 作業者別(マスタ内) — 共通期間で絞った sipV/actV/pmV を使用
+  const wk={}; const ensure=l=>wk[l]||(wk[l]={stowQ:0,stowCnt:0,sh:0,ov:0,pickCnt:0});
+  sipV.forEach(r=>{const w=ensure(r.user_logins);w.stowCnt++;w.stowQ+=num(r.quantity);if(r.symptoms==='Shortage')w.sh+=num(r.quantity);else if(r.symptoms==='Unexpected Quantity Overage')w.ov+=num(r.quantity);});
+  pmV.forEach(r=>{const w=ensure(r.error_person);w.pickCnt++;});
+  const stowPer={}; actV.forEach(r=>{stowPer[r.person]=(stowPer[r.person]||0)+num(r.stowtotalunit);});
+  const workers=[];
+  const seenName=new Set();
+  const pushWorker=(氏名,アカウント,時間帯,フォーク)=>{
+    const w=wk[アカウント]; const su=stowPer[アカウント]||0;
+    const has=w&&(w.stowCnt||w.pickCnt);
+    if(!su && !has) return; // 実績なしは非表示
+    workers.push({no:workers.length+1, 氏名:氏名||アカウント, 時間帯:時間帯||'', フォーク:フォーク||'', アカウント,
+      su, stowCnt:w?w.stowCnt:0, stowQ:w?w.stowQ:0, sh:w?w.sh:0, ov:w?w.ov:0, pickCnt:w?w.pickCnt:0,
+      dpmo:su?Math.round((w?w.stowQ:0)/su*1e6):0});
+  };
+  if(masterEmpty){
+    // マスタ未登録: データに登場する全アカウントを対象にする
+    const allAccts=new Set([...Object.keys(wk),...Object.keys(stowPer)].filter(Boolean));
+    [...allAccts].forEach(acct=>pushWorker(a2n[acct]||acct, acct, '', ''));
+  } else {
+    MASTER.forEach(m=>{
+      if(!m.アカウント) return;
+      if(seenName.has(m.氏名)&&!String(m.氏名).startsWith('貸アカウント')) return;
+      seenName.add(m.氏名);
+      pushWorker(m.氏名, m.アカウント, m.時間帯, m.フォーク);
+    });
+  }
+  workers.sort((a,b)=>b.dpmo-a.dpmo||b.su-a.su);
+
+  // マスタ外(参考) — 共通期間で絞る
+  const wkOut={}; const ensureO=l=>wkOut[l]||(wkOut[l]={stowQ:0,stowCnt:0,pickCnt:0});
+  (dataOut.sipsddr||[]).filter(r=>passMetric('stow',r)).forEach(r=>{const w=ensureO(r.user_logins);w.stowCnt++;w.stowQ+=num(r.quantity);});
+  (dataOut.pickmiss||[]).filter(r=>passMetric('work',r)).forEach(r=>{const w=ensureO(r.error_person);w.pickCnt++;});
+  const stowPerOut={}; (dataOut.jisseki||[]).filter(r=>passMetric('stow',r)).forEach(r=>{stowPerOut[r.person]=(stowPerOut[r.person]||0)+num(r.stowtotalunit);});
+  const workersOut=Object.keys(wkOut).filter(l=>wkOut[l].stowQ>0).map(l=>({アカウント:l,su:stowPerOut[l]||0,...wkOut[l],dpmo:(stowPerOut[l]||0)?Math.round(wkOut[l].stowQ/(stowPerOut[l]||1)*1e6):0}));
+
+  // フロア別欠品 — 棚欠品の共通期間(shelf)で絞った UnitsFloor/MissingFloor を使用
+  const ufByFloorS={}; ufShelf.forEach(r=>{const f=r.bin_module||'(不明)';ufByFloorS[f]=(ufByFloorS[f]||0)+num(r.units);});
+  const mfByFloorS={}; mfShelf.forEach(r=>{const f=r.bin_module||'(不明)';mfByFloorS[f]=(mfByFloorS[f]||0)+num(r.gross_units);});
+  const floors=[...new Set([...Object.keys(ufByFloorS),...Object.keys(mfByFloorS)])].sort();
+  const floorRows=floors.map(f=>{const u=ufByFloorS[f]||0,m=mfByFloorS[f]||0;return {floor:f,units:u,miss:m,dpmo:dpmo(m,u),rate:u?Math.round(m/u*10000)/100:0};});
+
+  return {
+    site,period,resolvedFrom,resolvedTo,narrowed,
+    kpi:{stowDpmo, pickWorkDpmo, pickShelfDpmo,
+         stowUnits, pickTotalUnits, sipQ, sipCnt, pmCnt, pmUnit, mfTotal, allUnits, rcvUnits},
+    pmByType:Object.keys(pmCntByType).map(t=>({type:t,cnt:pmCntByType[t],units:pmUnitByType[t]||0,dpmo:dpmo(pmUnitByType[t]||0, ufTotalWork||pickTotalUnits)})),
+    daily, workers, workersOut, floorRows, dispName,
+    // 生の欠陥レコード（共通期間で絞った全列・マスタ内/外込み）。明細ドリルダウン用。
+    raw:{
+      sipsddr:[...sipV, ...(dataOut.sipsddr||[]).filter(r=>passMetric('stow',r))],
+      pickmiss:[...pmV, ...(dataOut.pickmiss||[]).filter(r=>passMetric('work',r))],
+      missingfloor:mfShelf
+    }
+  };
+}
+
+/* =========================================================
+   生産性: 集計(既存ロジック継承)
+   ========================================================= */
+function hasDay(){ return S.ppr.some(r=>r.scope==='day'); }
+function hasMonth(){ return S.ppr.some(r=>r.scope==='month'); }
+function pprPivot(){
+  const map={},dates=new Set();
+  S.ppr.forEach(r=>{ if(r.scope!=='day') return; dates.add(r.date); const k=r.date+'||'+r.cp; if(!map[k])map[k]={vol:0,hrs:0}; map[k].vol+=r.vol; map[k].hrs+=r.hrs; });
+  return {dateArr:[...dates].sort(), map};
+}
+function pprProcessTotals(scope,dateFilter){
+  const map={};
+  S.ppr.forEach(r=>{ if(r.scope!==scope) return; if(dateFilter&&r.date!==dateFilter) return; if(!map[r.cp])map[r.cp]={vol:0,hrs:0}; map[r.cp].vol+=r.vol; map[r.cp].hrs+=r.hrs; });
+  return map;
+}
+function disp(name){ return acctName()[name]||name; }
+
+/* =========================================================
+   グラフ: 棒グラフ(既存継承)
+   series: [{name,color,data:[..]}] labels: x軸
+   ========================================================= */
+function niceMax(m){ if(!m||m<=0) return 1; const p=Math.pow(10,Math.floor(Math.log10(m))); const r=m/p; let n; if(r<=1)n=1;else if(r<=2)n=2;else if(r<=5)n=5;else n=10; return n*p; }
+/* 品質グラフ 詳細一覧モーダル（対象を構成する元レコードを全列表示） */
+function rawColumns(rows, extraHide){
+  // 内部フィールド(_始まり)・取込メタ列・不要列を除いた、元CSVの列を出現順で収集
+  // 全データセット共通の除外列
+  const HIDE=new Set(['source_file','employee_id','employee_name','business_title','supervisor_login_name','supervisor_name','hire_date','problem_id','created_date_with_time','bin_ids','employee_building','bin_type_name','bin_level','bin_module','bin_shelf','errror_id','supervisor_id','pick_switch']);
+  const extra=extraHide||null;
+  const cols=[]; const seen=new Set();
+  rows.forEach(r=>{ for(const k in r){ if(k.startsWith('_')||HIDE.has(k)||(extra&&extra.has(k))) continue; if(!seen.has(k)){ seen.add(k); cols.push(k); } } });
+  return cols;
+}
+function recordsTable(rows, extraHide){
+  const esc=s=>String(s==null?'':s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+  if(!rows.length) return '<div class="note">該当する欠陥レコードはありません。</div>';
+  // item_name はアイテムネーム専用の2行目に出すため、1行目の列からは除外
+  const ITEM_COL='item_name';
+  const allCols=rawColumns(rows, extraHide);
+  const hasItem=allCols.includes(ITEM_COL);
+  const cols=allCols.filter(c=>c!==ITEM_COL);
+  const th=cols.map(c=>`<th class="l">${esc(c)}</th>`).join('');
+  const ncol=cols.length;
+  const body=rows.map(r=>{
+    // 1行目: item_name以外の全列
+    let tr=`<tr class="rec">`+cols.map(c=>`<td class="l">${esc(r[c])}</td>`).join('')+`</tr>`;
+    // 2行目: item_name のみ（全幅・1行固定・はみ出しは横スクロール/印刷は切れる）
+    if(hasItem){
+      const v=r[ITEM_COL];
+      tr+=`<tr class="itemrow"><td class="l item" colspan="${ncol}"><span class="ilabel">item_name:</span> ${esc(v)}</td></tr>`;
+    }
+    return tr;
+  }).join('');
+  return `<div style="overflow:auto"><table class="detTable rec2"><thead><tr>${th}</tr></thead><tbody>${body}</tbody></table></div>
+    <div class="note" style="margin-top:8px">全 ${rows.length} 件。列は元データのまま（item_name は各レコードの2行目に表示）。</div>`;
+}
+function openQualityDetail(mode, R, target){
+  const raw=R.raw||{sipsddr:[],pickmiss:[],missingfloor:[]};
+  let title='', html='';
+  const P='（'+R.site+' ／ '+R.period+'）';
+  // Pick欠陥(PickMissData/PickMissingFloor)専用の追加除外列（Stow欠陥では残す）
+  const HIDE_PICK=new Set(['current_container','original_container','po']);
+  if(mode==='week'){
+    // その週(日曜〜土曜)の欠陥レコード全件
+    const sun=target.sunday, wk=target.wk;
+    const e=new Date(sun); e.setDate(e.getDate()+6);
+    const p=n=>String(n).padStart(2,'0');
+    const sat=e.getFullYear()+'-'+p(e.getMonth()+1)+'-'+p(e.getDate());
+    const inWk=r=>r._date && r._date>=sun && r._date<=sat;
+    const sip=raw.sipsddr.filter(inWk);
+    const pm=raw.pickmiss.filter(inWk);
+    const mf=raw.missingfloor.filter(inWk);
+    title='WK'+wk+'（'+sun+' 〜 '+sat+'）の欠陥明細 '+P;
+    html=`<h4 style="margin:6px 0 4px">Stow欠陥（SIPSDDR）</h4>${recordsTable(sip)}
+          <h4 style="margin:16px 0 4px">Pick作業ミス（PickMissData）</h4>${recordsTable(pm,HIDE_PICK)}
+          <h4 style="margin:16px 0 4px">Pick棚欠品（PickMissingFloor）</h4>${recordsTable(mf,HIDE_PICK)}`;
+    $('#detTitle').textContent=title;
+    $('#detBody').innerHTML=html;
+    $('#detModal').classList.add('on');
+    return;
+  }
+  if(mode==='daily'){
+    // その日の欠陥レコード(SIPSDDR + PickMiss + 棚欠品)
+    const d=target;
+    const sip=raw.sipsddr.filter(r=>r._date===d);
+    const pm=raw.pickmiss.filter(r=>r._date===d);
+    const mf=raw.missingfloor.filter(r=>r._date===d);
+    title=d+' の欠陥明細 '+P;
+    html=`<h4 style="margin:6px 0 4px">Stow欠陥（SIPSDDR）</h4>${recordsTable(sip)}
+          <h4 style="margin:16px 0 4px">Pick作業ミス（PickMissData）</h4>${recordsTable(pm,HIDE_PICK)}
+          <h4 style="margin:16px 0 4px">Pick棚欠品（PickMissingFloor）</h4>${recordsTable(mf,HIDE_PICK)}`;
+  } else if(mode==='item'){
+    const key=target; // 'stow' | 'work' | 'shelf'
+    if(key==='stow'){ title='Stow欠陥 明細（SIPSDDR）'+P; html=recordsTable(raw.sipsddr); }
+    else if(key==='work'){ title='Pick作業ミス 明細（PickMissData）'+P; html=recordsTable(raw.pickmiss,HIDE_PICK); }
+    else { title='Pick棚欠品 明細（PickMissingFloor）'+P; html=recordsTable(raw.missingfloor,HIDE_PICK); }
+  } else {
+    // 個人別: その作業者の欠陥レコード(SIPSDDR user_logins + PickMiss error_person)
+    const acct=target;
+    const nm=R.dispName?R.dispName(acct):acct;
+    const sip=raw.sipsddr.filter(r=>r.user_logins===acct);
+    const pm=raw.pickmiss.filter(r=>r.error_person===acct);
+    title=nm+'（'+acct+'）の欠陥明細 '+P;
+    html=`<h4 style="margin:6px 0 4px">Stow欠陥（SIPSDDR）</h4>${recordsTable(sip)}
+          <h4 style="margin:16px 0 4px">Pick作業ミス（PickMissData）</h4>${recordsTable(pm,HIDE_PICK)}`;
+  }
+  $('#detTitle').textContent=title;
+  $('#detBody').innerHTML=html;
+  $('#detModal').classList.add('on');
+}
+
+function barChart(labels, series, unit, onBar, overlay){
+  const padL=56,padR=16,padT=(overlay&&overlay.points&&overlay.points.length)?84:14,padB=46;
+  const groupW=Math.max(44, Math.min(90, 640/Math.max(labels.length,1)));
+  const W=padL+padR+groupW*labels.length, H=300;
+  const plotH=H-padT-padB, plotW=W-padL-padR;
+  let maxV=0; series.forEach(s=>s.data.forEach(v=>{ if(v!=null&&v>maxV)maxV=v; }));
+  if(overlay&&overlay.points) overlay.points.forEach(p=>{ if(p.value!=null&&p.value>maxV)maxV=p.value; });
+  const top=niceMax(maxV);
+  const svgNS='http://www.w3.org/2000/svg';
+  const svg=document.createElementNS(svgNS,'svg');
+  svg.setAttribute('viewBox',`0 0 ${W} ${H}`); svg.setAttribute('width',W); svg.style.maxWidth='100%'; svg.style.height='auto';
+  const mk=(t,a)=>{const e=document.createElementNS(svgNS,t);for(const k in a)e.setAttribute(k,a[k]);return e;};
+  // gridlines
+  for(let g=0;g<=4;g++){
+    const y=padT+plotH*(1-g/4), val=top*g/4;
+    svg.appendChild(mk('line',{x1:padL,y1:y,x2:W-padR,y2:y,stroke:'#eef1f6','stroke-width':1}));
+    const tx=mk('text',{x:padL-8,y:y+4,'text-anchor':'end','font-size':11,fill:'#7b8aa3'}); tx.textContent=fmtI(val); svg.appendChild(tx);
+  }
+  const nS=series.length, barW=Math.max(4,(groupW-10)/Math.max(nS,1));
+  const colCenter=i=>padL+groupW*i+groupW/2-5;
+  labels.forEach((lab,i)=>{
+    const gx=padL+groupW*i+5;
+    series.forEach((s,si)=>{
+      const v=s.data[i]; if(v==null) return;
+      const h=plotH*(v/top), x=gx+barW*si, y=padT+plotH-h;
+      svg.appendChild(mk('rect',{x,y,width:Math.max(barW-2,2),height:Math.max(h,0),fill:s.color,rx:2}));
+    });
+    const tx=mk('text',{x:gx+groupW/2-5,y:H-padB+16,'text-anchor':'middle','font-size':11,fill:'#3a4c68'}); tx.textContent=lab; svg.appendChild(tx);
+    if(typeof onBar==='function'){
+      // 列全体を覆う透明ヒットエリア（クリックしやすく）
+      const hit=mk('rect',{x:gx-3,y:padT,width:groupW-4,height:plotH,fill:'transparent',style:'cursor:pointer'});
+      hit.addEventListener('click',()=>onBar(i));
+      const tt=mk('title'); tt.textContent=lab+'（クリックで明細）'; hit.appendChild(tt);
+      svg.appendChild(hit);
+    }
+  });
+  // 線グラフオーバーレイ（週次など。points:[{i,value,label,card,onClick}]）
+  if(overlay&&overlay.points&&overlay.points.length){
+    const col=overlay.color||'#c0392b';
+    const pts=overlay.points.filter(p=>p.value!=null).map(p=>({x:colCenter(p.i), y:padT+plotH*(1-p.value/top), p}));
+    if(pts.length>1){
+      let dd='M'+pts.map(q=>q.x+' '+q.y).join(' L');
+      svg.appendChild(mk('path',{d:dd,fill:'none',stroke:col,'stroke-width':2,'stroke-linejoin':'round'}));
+    }
+    pts.forEach(q=>{
+      svg.appendChild(mk('circle',{cx:q.x,cy:q.y,r:4,fill:'#fff',stroke:col,'stroke-width':2}));
+    });
+    // 各点の真上に常時カード表示（点から一定距離）。SVG内 foreignObject で座標追従
+    const CARD_W=108, CARD_H=56, GAP=14; // 3行構成。点からの一定距離
+    pts.forEach(q=>{
+      const fx=Math.max(padL-4, Math.min(W-padR-CARD_W, q.x-CARD_W/2));
+      const fy=q.y-GAP-CARD_H;
+      const fo=mk('foreignObject',{x:fx,y:Math.max(0,fy),width:CARD_W,height:CARD_H,style:'overflow:visible'});
+      const div=document.createElement('div');
+      div.setAttribute('xmlns','http://www.w3.org/1999/xhtml');
+      div.style.cssText='font:600 11px/1.3 system-ui,sans-serif;background:#fff;border:1.5px solid '+col+';border-radius:8px;padding:3px 5px;text-align:center;color:#2a3446;box-shadow:0 2px 6px rgba(0,0,0,.12);cursor:pointer;white-space:nowrap';
+      const c=q.p.card||{};
+      div.innerHTML='<div style="color:'+col+';font-weight:800;font-size:12px">'+(c.l1||q.p.label||'')+'</div>'
+        +'<div style="font-size:10px;color:#5a6b86">'+(c.l2||'')+'</div>'
+        +'<div style="font-size:11px;font-weight:700">'+(c.l3||('DPMO '+fmtI(q.p.value)))+'</div>';
+      if(typeof q.p.onClick==='function'){ div.addEventListener('click',ev=>{ev.stopPropagation();q.p.onClick();}); }
+      fo.appendChild(div);
+      svg.appendChild(fo);
+      // 点とカードを結ぶ細い引き出し線
+      svg.appendChild(mk('line',{x1:q.x,y1:q.y-4,x2:q.x,y2:Math.max(0,fy)+CARD_H,stroke:col,'stroke-width':1,'stroke-dasharray':'2 2'}));
+    });
+  }
+  if(unit){ const u=mk('text',{x:padL-8,y:padT-2,'text-anchor':'end','font-size':10,fill:'#7b8aa3'}); u.textContent=unit; svg.appendChild(u); }
+  // legend
+  const legend=el('div','legend');
+  series.forEach(s=>{ const li=el('span','li'); const sw=el('span','sw'); sw.style.background=s.color; li.appendChild(sw); li.appendChild(el('span',null,s.name)); legend.appendChild(li); });
+  if(overlay&&overlay.name){ const li=el('span','li'); const sw=el('span','sw'); sw.style.background=overlay.color||'#c0392b'; sw.style.borderRadius='50%'; li.appendChild(sw); li.appendChild(el('span',null,overlay.name)); legend.appendChild(li); }
+  return {svg,legend};
+}
+
+/* 週番号: 1月1日を含む週の日曜を起点に、7日ごとにWK1,WK2... */
+function weekAnchorSunday(year){
+  const jan1=new Date(year,0,1);
+  const d=new Date(jan1); d.setDate(jan1.getDate()-jan1.getDay()); // その週の日曜へ戻す(getDay:0=日)
+  return d;
+}
+function weekNumberOf(dateStr){
+  // dateStr: 'YYYY-MM-DD'
+  const [y,m,dd]=dateStr.split('-').map(Number);
+  const dt=new Date(y,m-1,dd);
+  let anchor=weekAnchorSunday(y);
+  // 年またぎ考慮: 対象日が当年アンカーより前なら前年基準
+  if(dt<anchor){ anchor=weekAnchorSunday(y-1); }
+  const diffDays=Math.floor((dt-anchor)/86400000);
+  return Math.floor(diffDays/7)+1;
+}
+function sundayOf(dateStr){
+  const [y,m,dd]=dateStr.split('-').map(Number);
+  const dt=new Date(y,m-1,dd);
+  dt.setDate(dt.getDate()-dt.getDay());
+  const p=n=>String(n).padStart(2,'0');
+  return dt.getFullYear()+'-'+p(dt.getMonth()+1)+'-'+p(dt.getDate());
+}
+/* 汎用: 日別配列から週次DPMO(日曜起点)。numFn=分子, denFn=分母 のアクセサ */
+function weeklyDpmoBy(daily, numFn, denFn){
+  const byWeek={}; const dateSet=new Set(daily.map(d=>d.date));
+  daily.forEach(d=>{
+    const sun=sundayOf(d.date);
+    if(!byWeek[sun]) byWeek[sun]={num:0,den:0,wk:weekNumberOf(d.date),sunday:sun,hasSunday:dateSet.has(sun)};
+    byWeek[sun].num+=numFn(d)||0; byWeek[sun].den+=denFn(d)||0;
+  });
+  return Object.values(byWeek)
+    .filter(w=>w.hasSunday)
+    .map(w=>({...w, dpmo:w.den?Math.round(w.num/w.den*1e6):0}))
+    .sort((a,b)=>a.sunday<b.sunday?-1:1);
+}
+/* 日別データ配列から週次Stow DPMO(日曜がデータ内にある週のみ)を算出 */
+function weeklyStowDpmo(daily){
+  // daily: [{date, sq(欠陥数), su(Stow処理Units)}...]
+  const byWeek={}; // sundayStr -> {sq, su, wk, hasSunday, sundayDate}
+  const dateSet=new Set(daily.map(d=>d.date));
+  daily.forEach(d=>{
+    const sun=sundayOf(d.date);
+    if(!byWeek[sun]) byWeek[sun]={sq:0,su:0,wk:weekNumberOf(d.date),sunday:sun,hasSunday:dateSet.has(sun)};
+    byWeek[sun].sq+=d.sq||0; byWeek[sun].su+=d.su||0;
+  });
+  return Object.values(byWeek)
+    .filter(w=>w.hasSunday)   // 日曜がデータに存在する週だけ
+    .map(w=>({...w, dpmo:w.su?Math.round(w.sq/w.su*1e6):0}))
+    .sort((a,b)=>a.sunday<b.sunday?-1:1);
+}
+
+/* card helpers */
+function card(title, headerExtra){
+  const c=el('div','card'); const ch=el('div','ch'); ch.appendChild(el('h3',null,title));
+  if(headerExtra) ch.appendChild(headerExtra);
+  c.appendChild(ch); const cb=el('div','cb'); c.appendChild(cb); c._body=cb; return c;
+}
+function emptyBox(msg){ const e=el('div','emptycard',msg); return e; }
+function thH(t,left){ const th=el('th',left?'l':null); th.textContent=t; return th; }
+function tdC(t,left,cls){ const d=el('td',(left?'l ':'')+(cls||'')); d.textContent=t; return d; }
+function evalPill(dpmo){ // DPMOは小さいほど良い
+  const cls=dpmo<=500?'good':dpmo<=2000?'mid':'bad';
+  const p=el('span','pill '+cls); p.textContent=fmtI(dpmo); return p;
+}
+
+/* =========================================================
+   ダッシュボード構築
+   ========================================================= */
+let QReport=null; // 直近の品質算出結果
+function buildDash(){
+  $('#ingest').style.display='none';
+  const d=$('#dash'); d.style.display='block'; d.innerHTML='';
+
+  if(S.view==='day'&&!hasDay()&&hasMonth()) S.view='month';
+  if(S.view==='month'&&!hasMonth()&&hasDay()) S.view='day';
+
+  // フィルタバー(品質サイト/期間)
+  const fb=el('div','filterbar');
+  const siteWrap=el('div'); siteWrap.innerHTML='<label>品質サイト</label>'; const siteSel=el('select'); siteSel.id='qSite'; siteWrap.appendChild(siteSel);
+  const fWrap=el('div'); fWrap.innerHTML='<label>開始(任意)</label>'; const fIn=el('input'); fIn.type='date'; fIn.id='qFrom'; fWrap.appendChild(fIn);
+  const tWrap=el('div'); tWrap.innerHTML='<label>終了(任意)</label>'; const tIn=el('input'); tIn.type='date'; tIn.id='qTo'; tWrap.appendChild(tIn);
+  const goWrap=el('div'); const go=el('button','btn pri','品質を再計算'); go.onclick=()=>recalcQuality(); goWrap.appendChild(go);
+  const periodWrap=el('div','periodinfo'); periodWrap.id='qPeriodInfo'; periodWrap.style.cssText='display:flex;flex-direction:column;justify-content:center;font-size:12px;color:#5a6b86;padding-left:4px';
+  const sp=el('div','spacer');
+  const backWrap=el('div'); const back=el('button','btn gho','取込に戻る'); back.onclick=()=>{ d.style.display='none'; $('#ingest').style.display='block'; }; backWrap.appendChild(back);
+  fb.appendChild(siteWrap); fb.appendChild(fWrap); fb.appendChild(tWrap); fb.appendChild(goWrap); fb.appendChild(periodWrap); fb.appendChild(sp); fb.appendChild(backWrap);
+  d.appendChild(fb);
+
+  // タブ
+  const tabs=el('div','tabs'); const paneWrap=el('div');
+  const T=[
+    {id:'combo',label:'品質 × 生産性',cls:'',fn:paneCombo},
+    {id:'qual',label:'品質',cls:'qual',fn:paneQual},
+    {id:'prod',label:'生産性',cls:'prod',fn:paneProd},
+    {id:'files',label:'取り込み履歴',cls:'',fn:paneFiles},
+  ];
+  T.forEach((t,i)=>{
+    const btn=el('button','tab '+t.cls+(i===0?' on':''),t.label); btn.dataset.id=t.id;
+    btn.onclick=()=>{ tabs.querySelectorAll('.tab').forEach(x=>x.classList.remove('on')); btn.classList.add('on');
+      paneWrap.querySelectorAll('.pane').forEach(x=>x.classList.remove('on')); $('#pane-'+t.id).classList.add('on'); };
+    tabs.appendChild(btn);
+    const pane=el('div','pane'+(i===0?' on':'')); pane.id='pane-'+t.id;
+    t.fn(pane); paneWrap.appendChild(pane);
+  });
+  d.appendChild(tabs); d.appendChild(paneWrap);
+
+  // サイト一覧をロードして初回品質計算
+  populateSitesThenCompute(siteSel);
+}
+
+async function populateSitesThenCompute(siteSel){
+  const sites=await listSites();
+  siteSel.innerHTML='';
+  if(!sites.length){ const o=el('option'); o.value=''; o.textContent='(品質データなし)'; siteSel.appendChild(o); return; }
+  // HFO1 を優先選択
+  sites.forEach(s=>{ const o=el('option'); o.value=s; o.textContent=s; siteSel.appendChild(o); });
+  const pref=sites.find(s=>/HFO1/i.test(s))||sites[0];
+  siteSel.value=pref;
+  recalcQuality();
+}
+async function recalcQuality(){
+  const siteSel=$('#qSite'); if(!siteSel) return;
+  const site=siteSel.value, from=$('#qFrom').value, to=$('#qTo').value;
+  if(!site){ QReport=null; renderQualPanes(); return; }
+  QReport=await computeQuality(site,from,to);
+  applyResolvedPeriod();
+  renderQualPanes();
+}
+// 算出後、実際に使われた期間を開始/終了欄と期間表示に反映（印刷にも出る）
+function applyResolvedPeriod(){
+  const info=$('#qPeriodInfo'); const fIn=$('#qFrom'), tIn=$('#qTo');
+  if(!QReport){ if(info) info.innerHTML=''; return; }
+  const rf=QReport.resolvedFrom||'', rt=QReport.resolvedTo||'';
+  // 開始/終了欄は書き換えない（自動反映すると開始日が基準に固定され過去が切れるため）。
+  // 実際に算出された期間は表示専用の情報として出す。
+  if(info){
+    const kind=QReport.narrowed?'共通期間':'全期間';
+    info.innerHTML='<span style="font-weight:600;color:#3a4c68">算出期間（'+kind+'）</span>'
+      +'<span>'+(rf||'最古')+' 〜 '+(rt||'最新')+'</span>';
+  }
+}
+function renderQualPanes(){
+  ['pane-combo','pane-qual'].forEach(id=>{ const p=$('#'+id); if(p){ p.innerHTML=''; (id==='pane-combo'?paneCombo:paneQual)(p); } });
+}
+
+/* -------- タブ: 品質×生産性(統合) -------- */
+function paneCombo(pane){
+  // KPI: 品質3 + 生産性1
+  const kp=el('div','kpis');
+  const kpi=(lab,val,cls)=>{const e=el('div','kpi '+(cls||''));e.appendChild(el('div','lab',lab));const v=el('div','val');v.innerHTML=val;e.appendChild(v);return e;};
+  if(QReport){
+    kp.appendChild(kpi('Stow DPMO', fmtI(QReport.kpi.stowDpmo),'q'));
+    kp.appendChild(kpi('Pick DPMO(作業ミス)', fmtI(QReport.kpi.pickWorkDpmo),'q'));
+    kp.appendChild(kpi('Pick DPMO(棚欠品)', fmtI(QReport.kpi.pickShelfDpmo),'q'));
+  } else {
+    kp.appendChild(kpi('品質DPMO','–','q'));
+  }
+  const pt=pprProcessTotals(S.view,null);
+  let tv=0,th=0; Object.values(pt).forEach(x=>{tv+=x.vol;th+=x.hrs;});
+  kp.appendChild(kpi(`全体UPH(${S.view==='day'?'日別':'月間'})`, th?`${fmt(tv/th)}<small> u/h</small>`:'–','p'));
+  pane.appendChild(kp);
+
+  // 目玉: 工程別 品質×生産性 併記
+  const c=card('工程別 品質×生産性（同一工程を UPH と DPMO で並置）');
+  const cb=c._body;
+  if(!S.ppr.length && !QReport){
+    cb.appendChild(el('div',null,'生産性データと品質データの両方を取り込むと、工程別に UPH（速さ）と DPMO（品質）を並べて確認できます。'));
+  } else {
+    // 生産性側: 工程別UPH
+    const proc=pprProcessTotals(S.view,null);
+    const rows=CORE.filter(cp=>proc[cp]).map(cp=>({cp, uph:proc[cp].hrs?proc[cp].vol/proc[cp].hrs:null, vol:proc[cp].vol, hrs:proc[cp].hrs}));
+    // 品質側: Stow/Pick の DPMO を対応工程に割当
+    const qmap={};
+    if(QReport){ qmap['Stow to Prime']=QReport.kpi.stowDpmo; qmap['Pick']=QReport.kpi.pickWorkDpmo; }
+    const sc=el('div','scroll'); const tb=el('table');
+    const thead=el('thead'); const tr=el('tr');
+    ['工程','UPH','処理Vol','工数(h)','DPMO(品質)'].forEach((t,i)=>tr.appendChild(thH(t,i===0)));
+    thead.appendChild(tr); tb.appendChild(thead);
+    const tbody=el('tbody');
+    rows.forEach(r=>{
+      const trr=el('tr');
+      trr.appendChild(tdC(r.cp,true));
+      trr.appendChild(tdC(r.uph!=null?fmt(r.uph):'–'));
+      trr.appendChild(tdC(fmtI(r.vol)));
+      trr.appendChild(tdC(fmt(r.hrs)));
+      const dq=qmap[r.cp];
+      const td=el('td'); if(dq!=null) td.appendChild(evalPill(dq)); else td.textContent='–'; trr.appendChild(td);
+      tbody.appendChild(trr);
+    });
+    tb.appendChild(tbody); sc.appendChild(tb); cb.appendChild(sc);
+    cb.appendChild(el('div','note','UPHは生産性データ(PPR)、DPMOは品質データから算出。品質と生産性は同一グラフに重ねず、表で並置します。'));
+  }
+  pane.appendChild(c);
+
+  // 作業者ドリルダウン(品質: Stow欠陥/Pickミス + DPMO)
+  if(QReport && QReport.workers.length){
+    const c2=card('作業者別 品質ドリルダウン（マスタ登録者・DPMO降順）');
+    const cb2=c2._body; cb2.classList.add('flush');
+    cb2.appendChild(el('div','note','行（作業者）をクリックすると、その人の欠陥レコード明細を表示します。'));
+    const sc=el('div','scroll'); const tb=el('table');
+    const thead=el('thead'); const tr=el('tr');
+    ['No.','氏名','時間帯','アカウント','Stow処理','欠陥件','欠陥数','Pickミス','個人DPMO'].forEach((t,i)=>tr.appendChild(thH(t,i===1||i===3)));
+    thead.appendChild(tr); tb.appendChild(thead);
+    const tbody=el('tbody');
+    QReport.workers.forEach((w,i)=>{
+      const trr=el('tr'); trr.className='rowlink'; trr.title='クリックで '+w.氏名+' の欠陥明細';
+      trr.onclick=()=>openQualityDetail('person', QReport, w.アカウント);
+      trr.appendChild(tdC(i+1));
+      trr.appendChild(tdC(w.氏名,true));
+      trr.appendChild(tdC(w.時間帯||'-'));
+      trr.appendChild(tdC(w.アカウント,true));
+      trr.appendChild(tdC(fmtI(w.su)));
+      trr.appendChild(tdC(w.stowCnt));
+      trr.appendChild(tdC(w.stowQ));
+      trr.appendChild(tdC(w.pickCnt));
+      const td=el('td'); td.appendChild(evalPill(w.dpmo)); trr.appendChild(td);
+      tbody.appendChild(trr);
+    });
+    tb.appendChild(tbody); sc.appendChild(tb); cb2.appendChild(sc);
+    pane.appendChild(c2);
+  }
+}
+
+/* -------- タブ: 品質 -------- */
+function paneQual(pane){
+  if(!QReport){ pane.appendChild(emptyBox('品質データがありません。SIPSDDR / PickMissData / 実績データ 等を取り込み、上部でサイトを選択してください。')); return; }
+  const R=QReport;
+  // KPI
+  const kp=el('div','kpis');
+  const qMetricState={metric:'stow'};
+  const kpi=(lab,val,cls)=>{const e=el('div','kpi '+(cls||''));e.appendChild(el('div','lab',lab));const v=el('div','val');v.innerHTML=val;e.appendChild(v);return e;};
+  const kStow=kpi('Stow DPMO',fmtI(R.kpi.stowDpmo),'q metricbtn');
+  const kWork=kpi('Pick 作業ミス',fmtI(R.kpi.pickWorkDpmo),'q metricbtn');
+  const kShelf=kpi('Pick 棚欠品',fmtI(R.kpi.pickShelfDpmo),'q metricbtn');
+  const metricCards={stow:kStow, work:kWork, shelf:kShelf};
+  const selectMetric=m=>{
+    qMetricState.metric=m;
+    Object.entries(metricCards).forEach(([k,c])=>c.classList.toggle('active', k===m));
+    if(axisState.mode!=='daily'){ axisState.mode='daily'; }
+    drawQ();
+  };
+  kStow.onclick=()=>selectMetric('stow');
+  kWork.onclick=()=>selectMetric('work');
+  kShelf.onclick=()=>selectMetric('shelf');
+  kStow.classList.add('active');
+  [kStow,kWork,kShelf].forEach(c=>{ c.title='クリックで日別グラフをこの指標に切替'; });
+  kp.appendChild(kStow); kp.appendChild(kWork); kp.appendChild(kShelf);
+  kp.appendChild(kpi('Stow処理Units',fmtI(R.kpi.stowUnits)+'<small> u</small>'));
+  kp.appendChild(kpi('Pick処理Units',fmtI(R.kpi.pickTotalUnits)+'<small> u</small>'));
+  pane.appendChild(kp);
+  pane.appendChild(el('div','note','対象: '+R.site+' ／ 期間: '+R.period));
+
+  // 軸切替グラフ(項目別 / 日別 / 個人別)
+  const axisState={mode:'daily', worker:null};
+  const qGraphRange={from:'', to:''};
+  const bar=el('div','axisbar');
+  const mkbtn=(id,lab)=>{ const b=el('button','axisbtn q'+(axisState.mode===id?' on':''),lab); b.dataset.m=id; b.onclick=()=>{ axisState.mode=id; drawQ(); }; return b; };
+  bar.appendChild(mkbtn('daily','日別 DPMO'));
+  bar.appendChild(mkbtn('item','項目別 DPMO'));
+  bar.appendChild(mkbtn('person','個人別 DPMO'));
+  const c=card('品質グラフ', bar); const cb=c._body; pane.appendChild(c);
+  // グラフ表示範囲（KPI/テーブルとは独立。過去比較用）
+  const rangeBar=el('div','graphrange');
+  rangeBar.style.cssText='display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px;font-size:13px;color:#5a6b86';
+  const gFrom=el('input'); gFrom.type='date'; gFrom.className='ginput';
+  const gTo=el('input'); gTo.type='date'; gTo.className='ginput';
+  const gReset=el('button','btn gho'); gReset.textContent='全期間'; gReset.style.padding='4px 10px';
+  rangeBar.appendChild(el('span',null,'グラフ表示範囲:'));
+  rangeBar.appendChild(gFrom); rangeBar.appendChild(el('span',null,'〜')); rangeBar.appendChild(gTo);
+  rangeBar.appendChild(gReset);
+  // プリセット: 直近1週間 / 直近1ヶ月（データの最新日を基準）
+  const qLastDate=R.daily.length?R.daily[R.daily.length-1].date:'';
+  const shiftDays=(dateStr,n)=>{ const d=new Date(dateStr); d.setDate(d.getDate()-n); const p=x=>String(x).padStart(2,'0'); return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate()); };
+  const preset=(lab,days)=>{ const b=el('button','btn gho'); b.textContent=lab; b.style.padding='4px 10px'; b.onclick=()=>{ if(!qLastDate)return; const f=shiftDays(qLastDate,days-1); qGraphRange.from=f; qGraphRange.to=qLastDate; gFrom.value=f; gTo.value=qLastDate; drawQ(); }; return b; };
+  rangeBar.appendChild(preset('直近1週間',7));
+  rangeBar.appendChild(preset('直近1ヶ月',30));
+  const gInfo=el('span'); gInfo.style.color='#8a97ad'; rangeBar.appendChild(gInfo);
+  gFrom.onchange=()=>{ qGraphRange.from=gFrom.value; drawQ(); };
+  gTo.onchange=()=>{ qGraphRange.to=gTo.value; drawQ(); };
+  gReset.onclick=()=>{ qGraphRange.from=''; qGraphRange.to=''; gFrom.value=''; gTo.value=''; drawQ(); };
+  cb.appendChild(rangeBar);
+  // 日別データをグラフ範囲で絞る
+  const filterDaily=()=>{
+    let d=R.daily;
+    if(qGraphRange.from) d=d.filter(x=>x.date>=qGraphRange.from);
+    if(qGraphRange.to) d=d.filter(x=>x.date<=qGraphRange.to);
+    return d;
+  };
+  function drawQ(){
+    // rangeBar以外をクリア（rangeBarは維持）
+    [...cb.children].forEach(ch=>{ if(ch!==rangeBar) ch.remove(); });
+    bar.querySelectorAll('.axisbtn').forEach(b=>b.classList.toggle('on', b.dataset.m===axisState.mode));
+    rangeBar.style.display = axisState.mode==='daily'?'flex':'none';
+    if(axisState.mode==='daily'){
+      const dailyAll=R.daily;
+      const daily=filterDaily();
+      if(!dailyAll.length){ cb.appendChild(el('div',null,'日別データがありません。')); return; }
+      if(!daily.length){ cb.appendChild(el('div','note','指定したグラフ表示範囲に該当する日別データがありません。範囲を調整してください。')); return; }
+      gInfo.textContent='（'+daily.length+'日分 / 全'+dailyAll.length+'日）';
+      // 表示指標（KPIカードで切替）: stow / work / shelf
+      const M=qMetricState.metric||'stow';
+      const metricDef={
+        stow:{name:'Stow DPMO', color:'#7a4fa3', day:d=>d.dpmo, wsq:d=>d.sq, wsu:d=>d.su},
+        work:{name:'Pick作業ミス DPMO', color:'#c47f17', day:d=>d.workDpmo, wsq:d=>d.pmUnit, wsu:d=>d.pickUnits},
+        shelf:{name:'Pick棚欠品 DPMO', color:'#2f855a', day:d=>d.shelfDpmo, wsq:d=>d.mfUnit, wsu:d=>d.pickUnits}
+      }[M];
+      const labels=daily.map(d=>d.date.slice(5));
+      const series=[{name:metricDef.name,color:metricDef.color,data:daily.map(metricDef.day)}];
+      const onBar=i=>openQualityDetail('daily', R, daily[i].date);
+      // 週次DPMO（日曜起点・選択指標）を線グラフで重ね、各週の日曜位置に常時カード表示
+      const weeks=weeklyDpmoBy(daily, metricDef.wsq, metricDef.wsu);
+      const dateIndex={}; daily.forEach((d,i)=>dateIndex[d.date]=i);
+      const p2=n=>String(n).padStart(2,'0');
+      const rangeLabel=sun=>{ const e=new Date(sun); e.setDate(e.getDate()+6); return sun.slice(5)+'〜'+p2(e.getMonth()+1)+'-'+p2(e.getDate()); };
+      const points=weeks
+        .filter(w=>dateIndex[w.sunday]!=null)
+        .map(w=>({
+          i:dateIndex[w.sunday], value:w.dpmo, label:'WK'+w.wk,
+          card:{ l1:'WK'+w.wk, l2:rangeLabel(w.sunday), l3:'DPMO '+fmtI(w.dpmo) },
+          onClick:()=>openQualityDetail('week', R, {sunday:w.sunday, wk:w.wk})
+        }));
+      const overlay=points.length?{points,color:'#c0392b',name:'週次'+metricDef.name+'(日曜起点・カードクリックで週明細)'}:null;
+      const {svg,legend}=barChart(labels,series,'DPMO',onBar,overlay);
+      const w=el('div','chartwrap clickable'); w.appendChild(svg); cb.appendChild(w); cb.appendChild(legend);
+      cb.appendChild(el('div','note','上のKPIカード（Stow / Pick作業ミス / Pick棚欠品）をクリックで指標を切替。棒（日付）クリックでその日の明細、週次カードクリックでその週の明細を表示します。'));
+    } else if(axisState.mode==='item'){
+      const items=[['Stow','stow',R.kpi.stowDpmo],['Pick作業ミス','work',R.kpi.pickWorkDpmo],['Pick棚欠品','shelf',R.kpi.pickShelfDpmo]];
+      const labels=items.map(x=>x[0]);
+      const series=[{name:'DPMO',color:'#7a4fa3',data:items.map(x=>x[2])}];
+      const onBar=i=>openQualityDetail('item', R, items[i][1]);
+      const {svg,legend}=barChart(labels,series,'DPMO',onBar);
+      const w=el('div','chartwrap clickable'); w.appendChild(svg); cb.appendChild(w); cb.appendChild(legend);
+      cb.appendChild(el('div','note','棒（項目）をクリックすると、その項目の欠陥レコード明細を表示します。'));
+    } else {
+      const top=R.workers.slice(0,15);
+      const labels=top.map(w=>w.氏名.length>6?w.氏名.slice(0,6):w.氏名);
+      const series=[{name:'個人DPMO',color:'#7a4fa3',data:top.map(w=>w.dpmo)}];
+      const onBar=i=>openQualityDetail('person', R, top[i].アカウント);
+      const {svg,legend}=barChart(labels,series,'DPMO',onBar);
+      const w=el('div','chartwrap clickable'); w.appendChild(svg); cb.appendChild(w); cb.appendChild(legend);
+      cb.appendChild(el('div','note','棒（作業者）をクリックすると、その人の欠陥レコード明細を表示します。上位15名を表示。'));
+    }
+  }
+  drawQ();
+
+  // 日別推移テーブル
+  if(R.daily.length){
+    const c2=card('日別推移'); const cb2=c2._body; cb2.classList.add('flush');
+    cb2.appendChild(el('div','note','行（日付）をクリックすると、その日の欠陥レコード明細を表示します。'));
+    const sc=el('div','scroll'); const tb=el('table'); const thead=el('thead'); const tr=el('tr');
+    ['日付','Stow処理','全処理','稼働人数','欠陥件','欠陥数','Shortage','Overage','Stow DPMO','Pickミス件'].forEach((t,i)=>tr.appendChild(thH(t,i===0)));
+    thead.appendChild(tr); tb.appendChild(thead); const tbody=el('tbody');
+    R.daily.forEach(d=>{
+      const trr=el('tr'); trr.className='rowlink'; trr.title='クリックで '+d.date+' の欠陥明細';
+      trr.onclick=()=>openQualityDetail('daily', R, d.date);
+      [d.date,fmtI(d.su),fmtI(d.tu),d.ppl,d.sipCnt,d.sq,d.sh,d.ov].forEach((v,i)=>trr.appendChild(tdC(v,i===0)));
+      const td=el('td'); td.appendChild(evalPill(d.dpmo)); trr.appendChild(td);
+      trr.appendChild(tdC(d.pmCnt));
+      tbody.appendChild(trr);
+    });
+    tb.appendChild(tbody); sc.appendChild(tb); cb2.appendChild(sc); pane.appendChild(c2);
+  }
+
+  // フロア別欠品
+  if(R.floorRows.length){
+    const c3=card('フロア別 Pick棚欠品'); const cb3=c3._body; cb3.classList.add('flush');
+    const sc=el('div','scroll'); const tb=el('table'); const thead=el('thead'); const tr=el('tr');
+    ['フロア','Pick処理Units','欠品Units','欠品DPMO','欠品率(%)'].forEach((t,i)=>tr.appendChild(thH(t,i===0)));
+    thead.appendChild(tr); tb.appendChild(thead); const tbody=el('tbody');
+    R.floorRows.forEach(f=>{
+      const trr=el('tr');
+      trr.appendChild(tdC(f.floor,true)); trr.appendChild(tdC(fmtI(f.units))); trr.appendChild(tdC(fmtI(f.miss)));
+      const td=el('td'); td.appendChild(evalPill(f.dpmo)); trr.appendChild(td);
+      trr.appendChild(tdC(f.rate));
+      tbody.appendChild(trr);
+    });
+    tb.appendChild(tbody); sc.appendChild(tb); cb3.appendChild(sc); pane.appendChild(c3);
+  }
+
+  // マスタ外(参考)
+  if(R.workersOut.length){
+    const c4=card('マスタ外（合計に含めず・参考）'); const cb4=c4._body; cb4.classList.add('flush');
+    const sc=el('div','scroll'); const tb=el('table'); const thead=el('thead'); const tr=el('tr');
+    ['アカウント','Stow処理','欠陥件','欠陥数','Pickミス','DPMO'].forEach((t,i)=>tr.appendChild(thH(t,i===0)));
+    thead.appendChild(tr); tb.appendChild(thead); const tbody=el('tbody');
+    R.workersOut.forEach(w=>{
+      const trr=el('tr'); trr.className='out';
+      [w.アカウント,fmtI(w.su),w.stowCnt,w.stowQ,w.pickCnt,fmtI(w.dpmo)].forEach((v,i)=>trr.appendChild(tdC(v,i===0)));
+      tbody.appendChild(trr);
+    });
+    tb.appendChild(tbody); sc.appendChild(tb); cb4.appendChild(sc); pane.appendChild(c4);
+  }
+}
+
+/* -------- タブ: 生産性(既存継承・棒グラフ) -------- */
+function paneProd(pane){
+  if(!S.ppr.length && !S.fr.length){ pane.appendChild(emptyBox('生産性データがありません。processPathReport / functionRollupReport を取り込んでください。')); return; }
+
+  // スコープ切替
+  if(hasDay()&&hasMonth()){
+    const bar=el('div','axisbar'); bar.style.marginBottom='14px';
+    [['day','日別(Day)'],['month','月間(Month)']].forEach(([v,lab])=>{ const b=el('button','axisbtn p'+(S.view===v?' on':''),lab); b.onclick=()=>{ S.view=v; pane.innerHTML=''; paneProd(pane); }; bar.appendChild(b); });
+    const note=el('span','scopenote','　※日別と月間は二重計上防止のため分離集計'); bar.appendChild(note);
+    pane.appendChild(bar);
+  }
+
+  // KPI
+  const pt=pprProcessTotals(S.view,null); let tv=0,th=0; Object.values(pt).forEach(x=>{tv+=x.vol;th+=x.hrs;});
+  const {dateArr}=pprPivot();
+  const emps=new Set(S.fr.map(r=>r.name)); const active=new Set(S.fr.filter(r=>r.hours>=1).map(r=>r.name));
+  const kp=el('div','kpis');
+  const kpi=(lab,val,cls)=>{const e=el('div','kpi '+(cls||''));e.appendChild(el('div','lab',lab));const v=el('div','val');v.innerHTML=val;e.appendChild(v);return e;};
+  kp.appendChild(kpi(`全体UPH(${S.view==='day'?'日別':'月間'})`, th?`${fmt(tv/th)}<small> u/h</small>`:'–','p'));
+  if(S.view==='day') kp.appendChild(kpi('対象日数',dateArr.length?dateArr.length+'<small> 日</small>':'–'));
+  kp.appendChild(kpi('総ボリューム',fmtI(tv)+'<small> u</small>'));
+  kp.appendChild(kpi('総工数',fmtI(th)+'<small> h</small>'));
+  if(S.fr.length) kp.appendChild(kpi('稼働作業者',`${active.size}<small> / ${emps.size}名</small>`));
+  pane.appendChild(kp);
+
+  // 軸切替グラフ: 日別推移(工程選択) / 個人別
+  const axisState={mode: (S.view==='day'&&hasDay())?'daily':(S.fr.length?'person':'daily'), worker:null, proc:null};
+  const bar=el('div','axisbar');
+  const btns=[];
+  if(S.view==='day'&&hasDay()) btns.push(['daily','日別推移(工程選択)']);
+  if(S.fr.length) btns.push(['person','個人別 UPH']);
+  const pick=el('select','pick'); pick.style.display='none';
+  btns.forEach(([id,lab])=>{ const b=el('button','axisbtn p'+(axisState.mode===id?' on':''),lab); b.dataset.m=id; b.onclick=()=>{ axisState.mode=id; drawP(); }; bar.appendChild(b); });
+  if(S.fr.length){
+    const names=[...new Set(S.fr.map(r=>disp(r.name)))].sort();
+    names.forEach(n=>{ const o=el('option'); o.value=n; o.textContent=n; pick.appendChild(o); });
+    pick.onchange=()=>{ axisState.worker=pick.value; drawP(); };
+    bar.appendChild(pick);
+  }
+  const c=card('生産性グラフ', bar); const cb=c._body; pane.appendChild(c);
+
+  // グラフ表示範囲（生産性グラフ用・独立。過去比較用）
+  const pGraphRange={from:'', to:''};
+  const pRangeBar=el('div','graphrange');
+  pRangeBar.style.cssText='display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px;font-size:13px;color:#5a6b86';
+  const pFrom=el('input'); pFrom.type='date'; pFrom.className='ginput';
+  const pTo=el('input'); pTo.type='date'; pTo.className='ginput';
+  const pReset=el('button','btn gho'); pReset.textContent='全期間'; pReset.style.padding='4px 10px';
+  const pInfo=el('span'); pInfo.style.color='#8a97ad';
+  pRangeBar.appendChild(el('span',null,'グラフ表示範囲:'));
+  pRangeBar.appendChild(pFrom); pRangeBar.appendChild(el('span',null,'〜')); pRangeBar.appendChild(pTo);
+  pRangeBar.appendChild(pReset);
+  // プリセット: 直近1週間 / 直近1ヶ月（PPRデータの最新日を基準）
+  const pDates=[...new Set(S.ppr.filter(r=>r.scope==='day').map(r=>r.date))].sort();
+  const pLastDate=pDates.length?pDates[pDates.length-1]:'';
+  const pShift=(dateStr,n)=>{ const d=new Date(dateStr); d.setDate(d.getDate()-n); const z=x=>String(x).padStart(2,'0'); return d.getFullYear()+'-'+z(d.getMonth()+1)+'-'+z(d.getDate()); };
+  const pPreset=(lab,days)=>{ const b=el('button','btn gho'); b.textContent=lab; b.style.padding='4px 10px'; b.onclick=()=>{ if(!pLastDate)return; const f=pShift(pLastDate,days-1); pGraphRange.from=f; pGraphRange.to=pLastDate; pFrom.value=f; pTo.value=pLastDate; drawP(); }; return b; };
+  pRangeBar.appendChild(pPreset('直近1週間',7));
+  pRangeBar.appendChild(pPreset('直近1ヶ月',30));
+  pRangeBar.appendChild(pInfo);
+  pFrom.onchange=()=>{ pGraphRange.from=pFrom.value; drawP(); };
+  pTo.onchange=()=>{ pGraphRange.to=pTo.value; drawP(); };
+  pReset.onclick=()=>{ pGraphRange.from=''; pGraphRange.to=''; pFrom.value=''; pTo.value=''; drawP(); };
+
+  // 日別推移で表示する工程を選ぶボタン群（別行）
+  const procBar=el('div','axisbar procbar'); procBar.style.cssText='margin-bottom:8px;flex-wrap:wrap';
+
+  function drawP(){
+    cb.innerHTML='';
+    bar.querySelectorAll('.axisbtn').forEach(b=>b.classList.toggle('on', b.dataset.m===axisState.mode));
+    pick.style.display = axisState.mode==='person'?'inline-block':'none';
+    procBar.innerHTML=''; procBar.style.display='none';
+    if(axisState.mode==='daily'){
+      cb.appendChild(pRangeBar); pRangeBar.style.display='flex';
+      const piv=pprPivot();
+      let dateArr=piv.dateArr; const map=piv.map;
+      const dateAll=dateArr.slice();
+      if(pGraphRange.from) dateArr=dateArr.filter(dt=>dt>=pGraphRange.from);
+      if(pGraphRange.to) dateArr=dateArr.filter(dt=>dt<=pGraphRange.to);
+      pInfo.textContent='（'+dateArr.length+'日分 / 全'+dateAll.length+'日）';
+      const present=CORE.filter(cp=>dateArr.some(dt=>map[dt+'||'+cp]));
+      if(!dateAll.length){ cb.appendChild(el('div','note','日別の生産性データがありません。')); return; }
+      if(!dateArr.length){ cb.appendChild(el('div','note','指定したグラフ表示範囲に該当する日別データがありません。範囲を調整してください。')); return; }
+      // 選択工程が未設定/存在しない場合は先頭の工程を既定に
+      if(!axisState.proc || !present.includes(axisState.proc)) axisState.proc=present[0];
+      // 工程選択ボタンを表示
+      procBar.style.display='flex';
+      present.forEach(cp=>{
+        const on=cp===axisState.proc;
+        const b=el('button','axisbtn p'+(on?' on':''), cp); b.dataset.cp=cp;
+        const col=CORE_COLORS[CORE.indexOf(cp)];
+        if(on){ b.style.background=col; b.style.borderColor=col; b.style.color='#fff'; }
+        else { b.style.color=col; b.style.borderColor=col; }
+        b.onclick=()=>{ axisState.proc=cp; drawP(); };
+        procBar.appendChild(b);
+      });
+      cb.appendChild(procBar);
+
+      const cp=axisState.proc;
+      const color=CORE_COLORS[CORE.indexOf(cp)]||'#0f9d8f';
+      // 期間累計UPH（選択工程の全期間 vol合計 ÷ hrs合計）をグラフ上段に表示
+      let sumVol=0,sumHrs=0;
+      dateArr.forEach(dt=>{ const m=map[dt+'||'+cp]; if(m){ sumVol+=m.vol; sumHrs+=m.hrs; } });
+      const cumUph=sumHrs?sumVol/sumHrs:null;
+      const head=el('div','trendhead');
+      head.style.cssText='display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;margin-bottom:6px';
+      const badge=el('div'); badge.style.cssText='display:flex;align-items:baseline;gap:8px';
+      badge.innerHTML='<span style="font-size:13px;color:#5a6b86">期間累計UPH（'+cp+'）</span>'
+        +'<span style="font-size:26px;font-weight:800;color:'+color+'">'+(cumUph!=null?fmt(cumUph):'–')+'</span>'
+        +'<span style="font-size:12px;color:#8a97ad">u/h（Vol '+fmtI(sumVol)+' ÷ '+fmt(sumHrs)+'h ／ '+dateArr.length+'日）</span>';
+      head.appendChild(badge);
+      const clickInfo=el('div','trendclick'); clickInfo.id='trendClick';
+      clickInfo.style.cssText='font-size:13px;color:#3a4c68';
+      head.appendChild(clickInfo);
+      cb.appendChild(head);
+
+      // 選んだ1工程だけの日次推移（棒クリックでその日の値を表示）
+      const labels=dateArr.map(d=>d);
+      const dailyUph=dateArr.map(dt=>{const m=map[dt+'||'+cp];return m&&m.hrs?m.vol/m.hrs:null;});
+      const series=[{name:cp+' UPH',color,data:dailyUph}];
+      const onBar=i=>{
+        const dt=dateArr[i], m=map[dt+'||'+cp];
+        const u=dailyUph[i];
+        clickInfo.innerHTML='<b>'+dt+'</b> ／ UPH <b style="color:'+color+'">'+(u!=null?fmt(u):'–')+'</b>'
+          +(m?'（Vol '+fmtI(m.vol)+' ／ '+fmt(m.hrs)+'h）':'（データなし）');
+      };
+      const {svg,legend}=barChart(labels,series,'UPH',onBar); const w=el('div','chartwrap clickable'); w.appendChild(svg); cb.appendChild(w); cb.appendChild(legend);
+      cb.appendChild(el('div','note','工程ボタンで表示を切り替え。棒（日付）をクリックするとその日のUPH値を上段に表示します。'));
+    } else {
+      const wname=axisState.worker||pick.value;
+      const rows=S.fr.filter(r=>disp(r.name)===wname);
+      const byProc={}; rows.forEach(r=>{ if(!byProc[r.process])byProc[r.process]={u:0,h:0}; byProc[r.process].u+=r.units; byProc[r.process].h+=r.hours; });
+      const labels=Object.keys(byProc); const series=[{name:wname+' UPH',color:'#0f9d8f',data:labels.map(p=>byProc[p].h?byProc[p].u/byProc[p].h:null)}];
+      const {svg,legend}=barChart(labels,series,'UPH'); const w=el('div','chartwrap'); w.appendChild(svg); cb.appendChild(w); cb.appendChild(legend);
+    }
+  }
+  drawP();
+
+  // 工程別サマリテーブル
+  const pt2=pprProcessTotals(S.view,null);
+  const rows=CORE.filter(cp=>pt2[cp]).map(cp=>({cp,vol:pt2[cp].vol,hrs:pt2[cp].hrs,uph:pt2[cp].hrs?pt2[cp].vol/pt2[cp].hrs:null}));
+  if(rows.length){
+    const c2=card('工程別サマリー'); const cb2=c2._body; cb2.classList.add('flush');
+    const sc=el('div','scroll'); const tb=el('table'); const thead=el('thead'); const tr=el('tr');
+    ['工程','処理Vol','工数(h)','UPH'].forEach((t,i)=>tr.appendChild(thH(t,i===0))); thead.appendChild(tr); tb.appendChild(thead);
+    const tbody=el('tbody');
+    rows.forEach(r=>{ const trr=el('tr'); trr.appendChild(tdC(r.cp,true)); trr.appendChild(tdC(fmtI(r.vol))); trr.appendChild(tdC(fmt(r.hrs))); trr.appendChild(tdC(r.uph!=null?fmt(r.uph):'–')); tbody.appendChild(trr); });
+    tb.appendChild(tbody); sc.appendChild(tb); cb2.appendChild(sc); pane.appendChild(c2);
+  }
+
+  // 作業者別ランキング(FR: 中央値比較 ◎○△)
+  if(S.fr.length){
+    const g={}; S.fr.forEach(r=>{ if(!g[r.process])g[r.process]=[]; g[r.process].push(r); });
+    const c3=card('作業者別ランキング（工程別UPH・中央値比較）'); const cb3=c3._body;
+    Object.keys(g).forEach(proc=>{
+      const list=g[proc].filter(r=>r.hours>=0.5&&r.units>0).map(r=>({name:disp(r.name),uph:r.units/r.hours})).sort((a,b)=>b.uph-a.uph);
+      if(!list.length) return;
+      const med=list.map(x=>x.uph).sort((a,b)=>a-b)[Math.floor(list.length/2)];
+      const h=el('h3',null,proc+'（中央値 '+fmt(med)+' u/h）'); h.style.margin='14px 0 6px'; h.style.fontSize='13px'; h.style.color='var(--prod)'; cb3.appendChild(h);
+      const sc=el('div','scroll'); const tb=el('table'); const thead=el('thead'); const tr=el('tr');
+      ['順位','氏名','UPH','評価'].forEach((t,i)=>tr.appendChild(thH(t,i===1))); thead.appendChild(tr); tb.appendChild(thead);
+      const tbody=el('tbody');
+      list.forEach((x,i)=>{ const trr=el('tr'); trr.appendChild(tdC(i+1)); trr.appendChild(tdC(x.name,true)); trr.appendChild(tdC(fmt(x.uph)));
+        const ev=x.uph>=med*1.1?'◎':x.uph>=med*0.9?'○':'△'; trr.appendChild(tdC(ev)); tbody.appendChild(trr); });
+      tb.appendChild(tbody); sc.appendChild(tb); cb3.appendChild(sc);
+    });
+    pane.appendChild(c3);
+  }
+}
+
+/* -------- タブ: 取り込み履歴 -------- */
+async function paneFiles(pane){
+  const c=card('生産性データ 取込履歴'); const cb=c._body; cb.classList.add('flush');
+  if(!S.prodFiles.length){ cb.classList.remove('flush'); cb.appendChild(el('div',null,'生産性ファイルの取込はまだありません。')); }
+  else{
+    const sc=el('div','scroll'); const tb=el('table'); const thead=el('thead'); const tr=el('tr');
+    ['ファイル','種別','日付/工程','行数'].forEach((t,i)=>tr.appendChild(thH(t,i<3))); thead.appendChild(tr); tb.appendChild(thead);
+    const tbody=el('tbody');
+    S.prodFiles.forEach(f=>{ const trr=el('tr'); trr.appendChild(tdC(f.name,true)); trr.appendChild(tdC(f.type,true)); trr.appendChild(tdC(f.date,true)); trr.appendChild(tdC(f.rows)); tbody.appendChild(trr); });
+    tb.appendChild(tbody); sc.appendChild(tb); cb.appendChild(sc);
+  }
+  pane.appendChild(c);
+
+  // 品質DB内訳
+  const c2=card('品質データ（IndexedDB内訳）'); const cb2=c2._body; cb2.classList.add('flush');
+  const sc2=el('div','scroll'); const tb2=el('table'); const thead2=el('thead'); const tr2=el('tr');
+  ['データ種別','件数'].forEach((t,i)=>tr2.appendChild(thH(t,i===0))); thead2.appendChild(tr2); tb2.appendChild(thead2);
+  const tbody2=el('tbody');
+  for(const ds of DATASETS){ const recs=await getByDataset(ds.id); if(recs.length){ const trr=el('tr'); trr.appendChild(tdC(ds.label,true)); trr.appendChild(tdC(fmtI(recs.length))); tbody2.appendChild(trr); } }
+  tb2.appendChild(tbody2); sc2.appendChild(tb2); cb2.appendChild(sc2); pane.appendChild(c2);
+}
+
+/* =========================================================
+   カバレッジ確認ダイアログ
+   ========================================================= */
+function showCoverageDialog(mismatches, from, to){
+  return new Promise(resolve=>{
+    const modal=$('#covModal'), detail=$('#covDetail');
+    const fmtA=arr=>arr.length?(arr[0]+(arr.length>1?(' 〜 '+arr[arr.length-1]):'')+'（'+arr.length+'日）'):'なし';
+    let html='指定期間: <b>'+(from||'最古')+' 〜 '+(to||'最新')+'</b><br><br>';
+    mismatches.forEach(m=>{
+      const common=m.both.length?(m.both[0]+(m.both.length>1?(' 〜 '+m.both[m.both.length-1]):'')):'なし（重複日なし）';
+      html+='<b>'+m.label+'</b><br>　分子(欠陥): '+fmtA(m.numD)+'<br>　分母(処理量): '+fmtA(m.denD)+'<br>　両方が揃う日: <b>'+common+'</b><br><br>';
+    });
+    html+='「指定期間のまま算出」＝不足日はゼロ扱い。<br>「共通期間に絞って算出」＝両方揃う日だけでDPMO算出。';
+    detail.innerHTML=html; modal.classList.add('on');
+    const asis=$('#covAsIs'),common=$('#covCommon'),cancel=$('#covCancel');
+    const cleanup=()=>{ modal.classList.remove('on'); asis.onclick=common.onclick=cancel.onclick=null; };
+    asis.onclick=()=>{cleanup();resolve('asis');};
+    common.onclick=()=>{cleanup();resolve('common');};
+    cancel.onclick=()=>{cleanup();resolve('cancel');};
+  });
+}
+
+/* =========================================================
+   氏名マスタ編集
+   ========================================================= */
+function openMaster(){
+  const txt=MASTER.map(m=>[m.氏名,m.アカウント,m.時間帯||'',m.フォーク||''].join(',')).join('\n');
+  $('#mText').value=txt; $('#mask').classList.add('on');
+}
+async function saveMaster(){
+  const lines=$('#mText').value.split('\n').map(l=>l.trim()).filter(Boolean);
+  await clearMaster();
+  for(const line of lines){
+    const [氏名,アカウント,時間帯,フォーク]=line.split(',').map(s=>(s||'').trim());
+    if(!氏名||!アカウント) continue;
+    await saveMasterRow({氏名,アカウント,時間帯:時間帯||'',フォーク:フォーク||''});
+  }
+  await loadMaster(); $('#mask').classList.remove('on'); toast('マスタを保存しました');
+  refreshState();
+  if($('#qSite')) recalcQuality();
+}
+
+// CSVからマスタ取込（列名ゆらぎ吸収・既存に追記）
+async function importMasterCsv(file){
+  const text=await file.text();
+  const delim=(text.split('\t').length > text.split(',').length)?'\t':',';
+  const rows=parseDelimited(text, delim);
+  if(!rows.length){ toast('CSVが空です'); return; }
+  // ヘッダー行を探す（氏名/アカウント等を含む行）
+  const norm=s=>String(s||'').replace(/\s/g,'').toLowerCase();
+  const nameKeys=['氏名','名前','name','なまえ'];
+  const acctKeys=['アカウント','account','login','ログイン','付与済アカウント','付与済みアカウント','アカウントid'];
+  const shiftKeys=['時間帯','shift','シフト','勤務'];
+  const forkKeys=['フォーク','fork','forklift'];
+  const deptKeys=['所属','dept','部署'];
+  const findCol=(hdr,keys)=>hdr.findIndex(h=>keys.some(k=>norm(h)===norm(k)));
+  let hi=-1, cName=-1, cAcct=-1;
+  for(let r=0;r<Math.min(rows.length,10);r++){
+    const nm=findCol(rows[r],nameKeys), ac=findCol(rows[r],acctKeys);
+    if(nm>=0 || ac>=0){ hi=r; cName=nm; cAcct=ac; break; }
+  }
+  if(hi<0){ toast('氏名/アカウント列が見つかりません。列名をご確認ください'); return; }
+  const hdr=rows[hi];
+  const cShift=findCol(hdr,shiftKeys), cFork=findCol(hdr,forkKeys), cDept=findCol(hdr,deptKeys);
+  let n=0;
+  const existing=new Set(MASTER.map(m=>m.アカウント));
+  for(let r=hi+1;r<rows.length;r++){
+    const row=rows[r]; if(!row) continue;
+    const 氏名=(cName>=0?row[cName]:'')||'';
+    const アカウント=String((cAcct>=0?row[cAcct]:'')||'').trim();
+    if(!氏名 && !アカウント) continue;
+    if(!アカウント) continue; // アカウント必須（照合キー）
+    if(existing.has(アカウント)) continue; // 重複はスキップ
+    await saveMasterRow({
+      氏名:String(氏名).replace(/[\u3000\t]/g,' ').trim(),
+      アカウント,
+      時間帯:String((cShift>=0?row[cShift]:'')||'').trim(),
+      フォーク:String((cFork>=0?row[cFork]:'')||'').trim(),
+      所属:String((cDept>=0?row[cDept]:'')||'').trim(),
+    });
+    existing.add(アカウント); n++;
+  }
+  await loadMaster();
+  // テキストエリアにも反映
+  $('#mText').value=MASTER.map(m=>[m.氏名,m.アカウント,m.時間帯||'',m.フォーク||''].join(',')).join('\n');
+  toast(n+'件のマスタをCSVから取り込みました');
+}
+
+/* =========================================================
+   初期化 / イベント
+   ========================================================= */
+/* =========================================================
+   アーカイブ / 復元 (GAS連携)
+   ========================================================= */
+var ARC_CFG_KEY='hfo1_archive_cfg';
+var ARC_DEFAULT_URL='https://script.google.com/macros/s/AKfycbyjnM7vl78v9ffV-YVYT8MIXm0VOPu2sePVvlx2PCf5otqk_X67VolMfZNTeZWFWA2tLQ/exec';
+function arcLoadCfg(){
+  try{ const c=JSON.parse(localStorage.getItem(ARC_CFG_KEY)||'{}'); if(!c.url) c.url=ARC_DEFAULT_URL; return c; }catch(e){ return {url:ARC_DEFAULT_URL}; }
+}
+function arcSaveCfg(cfg){ try{ localStorage.setItem(ARC_CFG_KEY, JSON.stringify(cfg)); }catch(e){} }
+function openArchive(){
+  const cfg=arcLoadCfg();
+  $('#arcUrl').value=cfg.url||'';
+  $('#arcToken').value=cfg.token||'';
+  $('#arcSite').value=cfg.site||'';
+  $('#arcMask').classList.add('on');
+}
+async function arcCall(action, payload){
+  const cfg=arcLoadCfg();
+  if(!cfg.url) throw new Error('GAS URLが未設定です');
+  const body=Object.assign({action, token:cfg.token||''}, payload||{});
+  const res=await fetch(cfg.url, {
+    method:'POST',
+    // GASはtext/plainだとpreflight回避できるため
+    headers:{'Content-Type':'text/plain;charset=utf-8'},
+    body:JSON.stringify(body)
+  });
+  const txt=await res.text();
+  let data; try{ data=JSON.parse(txt); }catch(e){ throw new Error('応答が不正: '+txt.slice(0,120)); }
+  if(!data.ok) throw new Error(data.error||'エラー');
+  return data;
+}
+function arcCutoffDate(keepWeeks){
+  // 最新レコード日を基準に keepWeeks 週間より前を「古い」とする
+  const d=new Date(); d.setDate(d.getDate()-keepWeeks*7);
+  const p=n=>String(n).padStart(2,'0');
+  return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate());
+}
+async function arcRunArchive(){
+  const msg=$('#arcRunMsg'); msg.textContent='集計中...'; msg.style.color='#667';
+  try{
+    const cfg=arcLoadCfg();
+    if(!cfg.url){ throw new Error('接続設定(GAS URL)を保存してください'); }
+    if(!cfg.site){ throw new Error('拠点コードを設定してください'); }
+    const keepWeeks=Math.max(1, parseInt($('#arcKeepWeeks').value,10)||8);
+    // 最新日基準でcutoffを決める（データの最新日が今日より過去でも正しく動くよう最新日を採用）
+    const all=await getAllQual();
+    if(!all.length){ throw new Error('キャッシュに品質データがありません'); }
+    const dates=all.map(r=>r._date).filter(Boolean).sort();
+    const latest=dates[dates.length-1];
+    const base=new Date(latest); base.setDate(base.getDate()-keepWeeks*7);
+    const p=n=>String(n).padStart(2,'0');
+    const cutoff=base.getFullYear()+'-'+p(base.getMonth()+1)+'-'+p(base.getDate());
+    // cutoffより前(古い)を対象
+    const old=all.filter(r=>r._date && r._date < cutoff);
+    if(!old.length){ msg.style.color='#2a7'; msg.textContent='アーカイブ対象なし（直近'+keepWeeks+'週間分のみ）'; return; }
+    // バッチ分割送信(1回2000件)
+    const BATCH=2000; let added=0,dup=0;
+    for(let i=0;i<old.length;i+=BATCH){
+      const chunk=old.slice(i,i+BATCH);
+      msg.textContent='送信中 '+(i+chunk.length)+' / '+old.length+' 件...';
+      const r=await arcCall('archive', {site:cfg.site, records:chunk});
+      added+=r.added||0; dup+=r.dup||0;
+    }
+    let delMsg='';
+    if($('#arcDelAfter').checked){
+      const keys=old.map(r=>r._k).filter(Boolean);
+      const del=await deleteQualKeys(keys);
+      await refreshState();
+      delMsg='／ キャッシュから'+del+'件削除';
+    }
+    msg.style.color='#2a7';
+    msg.textContent='完了: 追加'+added+' 重複'+dup+' '+delMsg;
+  }catch(e){ msg.style.color='#c0392b'; msg.textContent='失敗: '+e.message; }
+}
+async function arcListQuarters(){
+  const msg=$('#arcListMsg'); const sel=$('#arcQuarter');
+  msg.textContent='取得中...'; msg.style.color='#667';
+  try{
+    const cfg=arcLoadCfg();
+    const r=await arcCall('list', {site:cfg.site});
+    sel.innerHTML='<option value="">（全四半期）</option>';
+    (r.quarters||[]).forEach(q=>{ const o=el('option'); o.value=q.quarter; o.textContent=q.quarter+'（'+fmtI(q.count)+'件）'; sel.appendChild(o); });
+    msg.style.color='#2a7';
+    msg.textContent=(r.quarters&&r.quarters.length)?('利用可能: '+r.quarters.map(q=>q.quarter).join(', ')):'アーカイブはまだありません';
+  }catch(e){ msg.style.color='#c0392b'; msg.textContent='失敗: '+e.message; }
+}
+async function arcRestore(){
+  const msg=$('#arcListMsg'); msg.textContent='復元中...'; msg.style.color='#667';
+  try{
+    const cfg=arcLoadCfg();
+    const quarter=$('#arcQuarter').value;
+    const r=await arcCall('restore', {site:cfg.site, quarter});
+    const recs=r.records||[];
+    if(!recs.length){ msg.style.color='#a70'; msg.textContent='該当データなし'; return; }
+    // キャッシュへ重複排除投入（_k基準）
+    const put=await putMany(recs);
+    await refreshState();
+    msg.style.color='#2a7';
+    msg.textContent='復元完了: '+recs.length+'件取得 / 新規追加'+put.added+' 重複'+put.dup+(r.truncated?'（上限到達・四半期を指定して再取得推奨）':'');
+  }catch(e){ msg.style.color='#c0392b'; msg.textContent='失敗: '+e.message; }
+}
+
+async function init(){
+  await openDB();
+  await loadMaster();
+  await refreshState();
+
+  const file=$('#file'), drop=$('#drop');
+  file.addEventListener('change',()=>{ if(file.files.length) handleFiles([...file.files]); file.value=''; });
+  ['dragenter','dragover'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add('hot');}));
+  ['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('hot');}));
+  drop.addEventListener('drop',e=>{ const f=e.dataTransfer.files; if(f&&f.length) handleFiles([...f]); });
+
+  $('#btnBuild').onclick=buildDash;
+  $('#btnMaster').onclick=openMaster;
+  $('#mClose').onclick=$('#mCancel').onclick=()=>$('#mask').classList.remove('on');
+  $('#mSave').onclick=saveMaster;
+  if($('#mCsv')) $('#mCsv').addEventListener('change',async e=>{ if(e.target.files[0]) await importMasterCsv(e.target.files[0]); e.target.value=''; });
+  if($('#detClose')) $('#detClose').onclick=()=>$('#detModal').classList.remove('on');
+  if($('#detModal')) $('#detModal').addEventListener('click',e=>{ if(e.target.id==='detModal') $('#detModal').classList.remove('on'); });
+  if($('#detPrint')) $('#detPrint').onclick=()=>window.print();
+  $('#btnSample').onclick=()=>{ $('#mText').value='永田 大作,nagatdai,日勤,○\n成松 みよ,narimatmy,夜勤,\n北里 直樹,kitasnao,日勤,○'; $('#mask').classList.add('on'); };
+  $('#btnClearProd').onclick=async()=>{ if(!confirm('生産性データ(メモリ)をクリアしますか？')) return; S.ppr=[];S.fr=[];S.prodFiles=[]; await refreshState(); toast('生産性データをクリアしました'); };
+  $('#btnClearQual').onclick=async()=>{ if(!confirm('品質データ(IndexedDB)を全消去しますか？この操作は取り消せません。')) return; await clearQual(); await refreshState(); QReport=null; toast('品質データをクリアしました'); };
+
+  // アーカイブ / 復元
+  if($('#btnArchive')) $('#btnArchive').onclick=openArchive;
+  if($('#arcClose')) $('#arcClose').onclick=()=>$('#arcMask').classList.remove('on');
+  if($('#arcMask')) $('#arcMask').addEventListener('click',e=>{ if(e.target.id==='arcMask') $('#arcMask').classList.remove('on'); });
+  if($('#arcSaveCfg')) $('#arcSaveCfg').onclick=()=>{
+    arcSaveCfg({url:$('#arcUrl').value.trim(), token:$('#arcToken').value.trim(), site:$('#arcSite').value.trim()});
+    const m=$('#arcCfgMsg'); m.style.color='#2a7'; m.textContent='保存しました';
+  };
+  if($('#arcPing')) $('#arcPing').onclick=async()=>{
+    const m=$('#arcCfgMsg'); m.style.color='#667'; m.textContent='接続中...';
+    try{ arcSaveCfg({url:$('#arcUrl').value.trim(), token:$('#arcToken').value.trim(), site:$('#arcSite').value.trim()}); const r=await arcCall('ping'); m.style.color='#2a7'; m.textContent='接続OK ('+r.msg+')'; }
+    catch(e){ m.style.color='#c0392b'; m.textContent='接続失敗: '+e.message; }
+  };
+  if($('#arcRun')) $('#arcRun').onclick=arcRunArchive;
+  if($('#arcList')) $('#arcList').onclick=arcListQuarters;
+  if($('#arcRestore')) $('#arcRestore').onclick=arcRestore;
+}
+init();
+</script>
+</body>
+</html>
