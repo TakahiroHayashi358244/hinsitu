@@ -797,13 +797,15 @@ async function pruneOldRawRecords(keepWeeks){
    ========================================================= */
 async function refreshState(){
   const qn=db?await countQual():0;
+  let sumN=0; try{ sumN=(await getAllSummaries()).length; }catch(e){}
   const hasProd=S.ppr.length||S.fr.length;
-  $('#btnBuild').disabled=!(qn||hasProd);
+  $('#btnBuild').disabled=!(qn||sumN||hasProd);
   $('#btnClearProd').disabled=!hasProd;
-  $('#btnClearQual').disabled=!qn;
+  $('#btnClearQual').disabled=!(qn||sumN);
   const b=$('#statusBadges'); b.innerHTML='';
   const mk=(lab,val,cls)=>{const e=el('span','badge'+(cls?' '+cls:''));e.innerHTML=`${lab} <b>${val}</b>`;return e;};
   if(qn) b.appendChild(mk('品質レコード',fmtI(qn),'q'));
+  if(sumN) b.appendChild(mk('品質サマリ',fmtI(sumN)+'日','q'));
   const days=[...new Set(S.ppr.filter(r=>r.scope==='day').map(r=>r.date))].length;
   if(days) b.appendChild(mk('生産性 日別',days+'日','p'));
   if(S.ppr.some(r=>r.scope==='month')) b.appendChild(mk('生産性 月間','あり','p'));
@@ -821,6 +823,8 @@ async function listSites(){
     const recs=await getByDataset(ds.id);
     recs.forEach(r=>{ const s=r[ds.siteField]; if(s) set.add(s); });
   }
+  // サマリのみのPC(復元後)でも拠点が出るように、サマリの拠点も含める
+  try{ const sums=await getAllSummaries(); sums.forEach(s=>{ if(s.site) set.add(s.site); }); }catch(e){}
   return [...set].sort();
 }
 function siteFilter(recs,ds,site){ return recs.filter(r=>!site||r[ds.siteField]===site); }
@@ -882,10 +886,18 @@ async function computeQuality(site, from, to, coverageChoice){
   };
 
   const effFrom=from, effTo=to;
+  // サマリ(明細削除済みの過去日)の日付も期間算出に含める
+  let summaryDates=[];
+  try{
+    const sums=await getAllSummaries(site);
+    summaryDates=sums.map(s=>s.date).filter(Boolean)
+      .filter(d=>(!from||d>=from)&&(!to||d<=to));
+  }catch(e){}
   // 実際に算出に使われた日付範囲を求める（全期間なら最古〜最新の実日付、共通期間なら許容日の範囲）
   const allDates=[...new Set([
     ...datesOf(data.sipsddr), ...datesOf(jStow),
-    ...datesOf(data.pickmiss), ...datesOf(data.missingfloor), ...datesOf(data.unitsfloor)
+    ...datesOf(data.pickmiss), ...datesOf(data.missingfloor), ...datesOf(data.unitsfloor),
+    ...summaryDates
   ])].filter(Boolean).sort();
   let resolvedFrom='', resolvedTo='';
   if(narrowed){
@@ -1041,10 +1053,17 @@ async function computeQuality(site, from, to, coverageChoice){
   const floors=[...new Set([...Object.keys(ufByFloorS),...Object.keys(mfByFloorS)])].sort();
   const floorRows=floors.map(f=>{const u=ufByFloorS[f]||0,m=mfByFloorS[f]||0;return {floor:f,units:u,miss:m,dpmo:dpmo(m,u),rate:u?Math.round(m/u*10000)/100:0};});
 
+  // KPIは最終的な daily(生+サマリ) から再集計し、サマリのみのPCでも正しく表示
+  let kStowSq=0,kStowSu=0,kPmUnit=0,kPickU=0,kMfUnit=0,kSipCnt=0,kPmCnt=0,kAllUnits=0,kRcv=0;
+  daily.forEach(d=>{ kStowSq+=d.sq||0; kStowSu+=d.su||0; kPmUnit+=d.pmUnit||0; kPickU+=d.pickUnits||0; kMfUnit+=d.mfUnit||0; kSipCnt+=d.sipCnt||0; kPmCnt+=d.pmCnt||0; kAllUnits+=d.tu||0; kRcv+=d.ru||0; });
+  const kStowDpmo=kStowSu?Math.round(kStowSq/kStowSu*1e6):0;
+  const kWorkDpmo=kPickU?Math.round(kPmUnit/kPickU*1e6):0;
+  const kShelfDpmo=kPickU?Math.round(kMfUnit/kPickU*1e6):0;
+
   return {
     site,period,resolvedFrom,resolvedTo,narrowed,
-    kpi:{stowDpmo, pickWorkDpmo, pickShelfDpmo,
-         stowUnits, pickTotalUnits, sipQ, sipCnt, pmCnt, pmUnit, mfTotal, allUnits, rcvUnits},
+    kpi:{stowDpmo:kStowDpmo, pickWorkDpmo:kWorkDpmo, pickShelfDpmo:kShelfDpmo,
+         stowUnits:kStowSu, pickTotalUnits:kPickU, sipQ:kStowSq, sipCnt:kSipCnt, pmCnt:kPmCnt, pmUnit:kPmUnit, mfTotal:kMfUnit, allUnits:kAllUnits, rcvUnits:kRcv},
     pmByType:Object.keys(pmCntByType).map(t=>({type:t,cnt:pmCntByType[t],units:pmUnitByType[t]||0,dpmo:dpmo(pmUnitByType[t]||0, ufTotalWork||pickTotalUnits)})),
     daily, workers, workersOut, floorRows, dispName,
     // 生の欠陥レコード（共通期間で絞った全列・マスタ内/外込み）。明細ドリルダウン用。
