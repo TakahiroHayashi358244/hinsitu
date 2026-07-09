@@ -2182,7 +2182,7 @@ async function init(){
   if($('#detPrint')) $('#detPrint').onclick=()=>window.print();
   $('#btnSample').onclick=()=>{ $('#mText').value='永田 大作,nagatdai,日勤,○\n成松 みよ,narimatmy,夜勤,\n北里 直樹,kitasnao,日勤,○'; $('#mask').classList.add('on'); };
   $('#btnClearProd').onclick=async()=>{ if(!confirm('生産性データ(メモリ・保存済み)をクリアしますか？')) return; S.ppr=[];S.fr=[];S.prodFiles=[]; try{await clearProdSummaries();}catch(e){} await refreshState(); toast('生産性データをクリアしました'); };
-  $('#btnClearQual').onclick=async()=>{ if(!confirm('品質データ(IndexedDB)を全消去しますか？この操作は取り消せません。')) return; await clearQual(); await refreshState(); QReport=null; toast('品質データをクリアしました'); };
+  $('#btnClearQual').onclick=async()=>{ if(!confirm('品質データ（明細・サマリ）をすべて消去しますか？この操作は取り消せません。')) return; await clearQual(); try{await clearSummaries();}catch(e){} await refreshState(); QReport=null; toast('品質データ（明細・サマリ）をクリアしました'); };
 
   // アーカイブ / 復元
   if($('#btnArchive')) $('#btnArchive').onclick=openArchive;
