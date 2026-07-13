@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>HFO1 品質・生産性 資料出力</title>
+<style>
+:root{--ink:#1f2d3d;--mut:#6b7a90;--line:#e3e8ef;--panel:#fff;--bg:#f5f7fa;
+      --q:#7a4fa3;--p:#0f9d8f;--accent:#2563eb;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+     font-family:-apple-system,"Hiragino Kaku Gothic ProN","Yu Gothic",Meiryo,sans-serif;font-size:14px}
+.wrap{max-width:1000px;margin:0 auto;padding:22px 18px 60px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;margin-bottom:16px;overflow:hidden}
+.chead{padding:13px 16px;border-bottom:1px solid var(--line);font-weight:700;font-size:15px;color:#22406b}
+.cbody{padding:16px}
+h1{font-size:20px;margin:0 0 4px}
+.sub{color:var(--mut);font-size:12.5px;margin-bottom:18px}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+label.f{display:block;font-size:12px;color:var(--mut);margin-bottom:3px}
+input[type=date],select,input[type=text]{padding:6px 9px;border:1px solid #cfd8e4;border-radius:8px;font-size:13px;background:#fff}
+.btn{border:1px solid #cfd8e4;background:#fff;border-radius:9px;padding:8px 16px;cursor:pointer;font-size:13.5px;color:var(--ink)}
+.btn:hover{background:#f2f6fb}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+.btn.pri:hover{filter:brightness(1.08)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.badge{display:inline-flex;gap:6px;align-items:center;background:#eef2f7;border-radius:999px;padding:4px 11px;font-size:12px;margin:0 6px 6px 0}
+.badge b{font-weight:700}
+.item{display:flex;gap:11px;align-items:flex-start;padding:11px 12px;border:1px solid var(--line);
+      border-radius:10px;margin-bottom:8px;cursor:pointer;background:#fff}
+.item:hover{border-color:#b9c6da;background:#fbfcfe}
+.item.on{border-color:var(--accent);background:#f4f9ff}
+.item input{margin-top:2px;transform:scale(1.15)}
+.item .t{font-weight:600;font-size:13.5px}
+.item .d{color:var(--mut);font-size:12px;margin-top:2px;line-height:1.5}
+.item.na{opacity:.45}
+.item.na .t::after{content:' — データなし';color:#b45309;font-weight:400;font-size:11.5px}
+.warn{background:#fff7ed;border:1px solid #fdba74;color:#9a3412;border-radius:9px;padding:11px 13px;font-size:12.5px;margin-bottom:12px}
+.ok{background:#ecfdf5;border:1px solid #6ee7b7;color:#065f46;border-radius:9px;padding:11px 13px;font-size:12.5px;margin-bottom:12px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:6px}
+.kpi{background:#fafbfd;border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.kpi .lab{font-size:11.5px;color:var(--mut)}
+.kpi .val{font-size:21px;font-weight:800;margin-top:2px}
+.kpi.q .val{color:var(--q)} .kpi.p .val{color:var(--p)}
+.foot{position:sticky;bottom:0;background:rgba(245,247,250,.94);backdrop-filter:blur(6px);
+      border-top:1px solid var(--line);padding:12px 0;margin-top:8px}
+#log{font-size:12px;color:var(--mut);margin-top:8px;white-space:pre-line}
+a.back{color:var(--accent);text-decoration:none;font-size:13px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>HFO1 品質・生産性 資料出力</h1>
+  <div class="sub">ダッシュボードと同じデータ（ブラウザ内 IndexedDB）を自動で読み込みます。項目を選んで PowerPoint を生成します。　<a class="back" href="./index.html">← ダッシュボードに戻る</a></div>
+
+  <div class="card">
+    <div class="chead">1. 対象データ</div>
+    <div class="cbody">
+      <div id="loadState" class="warn">データを読み込んでいます…</div>
+      <div class="row" style="gap:16px">
+        <div><label class="f">サイト</label><select id="site"></select></div>
+        <div><label class="f">開始</label><input type="date" id="from"></div>
+        <div><label class="f">終了</label><input type="date" id="to"></div>
+        <div style="align-self:flex-end"><button class="btn" id="reload">再集計</button></div>
+      </div>
+      <div id="badges" style="margin-top:12px"></div>
+      <div id="kpis" class="kpis"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="chead">2. 資料に含める項目</div>
+    <div class="cbody">
+      <div class="row" style="margin-bottom:10px">
+        <button class="btn" id="selAll">すべて選択</button>
+        <button class="btn" id="selNone">すべて解除</button>
+        <span style="color:var(--mut);font-size:12px">クリックで選択／解除</span>
+      </div>
+      <div id="items"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="chead">3. 出力</div>
+    <div class="cbody">
+      <div class="row" style="margin-bottom:10px">
+        <div style="flex:1;min-width:240px">
+          <label class="f">タイトル</label>
+          <input type="text" id="title" style="width:100%" value="HFO1 品質・生産性報告">
+        </div>
+        <div>
+          <label class="f">サブタイトル</label>
+          <input type="text" id="subtitle" value="Gworker合同会社">
+        </div>
+      </div>
+      <div class="foot">
+        <button class="btn pri" id="gen" disabled>PowerPointを生成</button>
+        <span id="log"></span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
+<script>
+"use strict";
+/* =========================================================
+   HFO1 資料出力ページ
+   - ダッシュボード(index.html)と同一オリジン → 同じ IndexedDB(hfo1_ops) を読む
+   - 集計ロジックはダッシュボードと同一（DPMO分母は OpsUnits）
+   ========================================================= */
+const $=s=>document.querySelector(s);
+const el=(t,c,x)=>{const e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e;};
+const num=v=>(v===''||v==null||isNaN(v))?0:Number(v);
+const fmtI=n=>(n==null||isNaN(n))?'–':Math.round(n).toLocaleString('ja-JP');
+const fmt1=n=>(n==null||isNaN(n))?'–':Number(n).toLocaleString('ja-JP',{minimumFractionDigits:1,maximumFractionDigits:1});
+const log=m=>{$('#log').textContent=m;};
+
+/* ---- 配色（社内資料の既存フォーマットに合わせる） ---- */
+const HDR='4472C4';       // 表ヘッダー（Excel風）
+const FONT='MS Pゴシック';
+const C_Q='7A4FA3', C_P='0F9D8F', C_INK='1F2D3D', C_MUT='6B7A90', C_BAD='C0392B';
+
+/* ---- IndexedDB（ダッシュボードと同じ定義） ---- */
+const DB_NAME='hfo1_ops', QSTORE='qrecords', MSTORE='qmaster', RSTORE='frrecords', PSTORE='pprrecords';
+let db=null;
+function openDB(){
+  return new Promise((res,rej)=>{
+    const rq=indexedDB.open(DB_NAME);   // バージョン指定なし＝既存のまま開く
+    rq.onsuccess=e=>{db=e.target.result;res(db);};
+    rq.onerror=e=>rej(new Error('IndexedDBを開けません'));
+  });
+}
+function all(store){
+  return new Promise(res=>{
+    if(!db||!db.objectStoreNames.contains(store)) return res([]);
+    const out=[]; const r=db.transaction(store,'readonly').objectStore(store).openCursor();
+    r.onsuccess=e=>{const c=e.target.result;if(c){out.push(c.value);c.continue();}else res(out);};
+    r.onerror=()=>res([]);
+  });
+}
+
+/* ---- 状態 ---- */
+let RAW={q:[],fr:[],ppr:[],master:[]};
+let R=null;      // 集計結果
+
+/* ---- 集計（ダッシュボードと同一ロジック） ---- */
+function compute(site,from,to){
+  const inP=d=>(!from||(d&&d>=from))&&(!to||(d&&d<=to));
+  const byDs=id=>RAW.q.filter(r=>r._ds===id && (!site||r.warehouse_id===site||r.site===site) && inP(r._date));
+
+  const jis=byDs('jisseki'), sip=byDs('sipsddr'), pm=byDs('pickmiss'),
+        mf=byDs('missingfloor'), uf=byDs('unitsfloor');
+  const sum=(rows,c)=>rows.reduce((s,r)=>s+num(r[c]),0);
+  const dpmo=(n,d)=>d?Math.round(n/d*1e6):0;
+
+  const stowU=sum(jis,'stowtotalunit');
+  const pickU=sum(jis,'picktotalunit');
+  const ufU  =sum(uf,'units');
+  const sipQ =sum(sip,'quantity');
+  const pmU  =sum(pm,'error_unit');
+  const mfU  =sum(mf,'gross_units');
+
+  // 稼働日と欠落日
+  const dOf=rows=>[...new Set(rows.map(r=>r._date).filter(Boolean))].sort();
+  const opDays=dOf(jis);
+  const gap=(lab,rows)=>{const h=new Set(dOf(rows));return {label:lab,missing:opDays.filter(d=>!h.has(d))};};
+  const gaps=[gap('Stow欠陥(SIPSDDR)',sip),gap('Pick作業ミス',pm),gap('Pick欠陥',mf)];
+
+  // 日別
+  const daily=opDays.map(d=>{
+    const j=jis.filter(r=>r._date===d), s=sip.filter(r=>r._date===d),
+          p=pm.filter(r=>r._date===d), u=uf.filter(r=>r._date===d), m=mf.filter(r=>r._date===d);
+    const su=sum(j,'stowtotalunit'), pu=sum(u,'units');
+    const sq=sum(s,'quantity'), pmu=sum(p,'error_unit'), mfu=sum(m,'gross_units');
+    return {date:d, su, pu, sq, pmu, mfu,
+            ppl:new Set(j.map(r=>r.person)).size,
+            stowDpmo:dpmo(sq,su), workDpmo:dpmo(pmu,pu), shelfDpmo:dpmo(mfu,pu)};
+  });
+
+  // 作業者別（Stow DPMO）
+  const a2n={}; RAW.master.forEach(m=>{ if(m.アカウント&&!(m.アカウント in a2n)) a2n[m.アカウント]=m.氏名; });
+  const wk={}; const en=a=>wk[a]||(wk[a]={su:0,cnt:0,q:0,pick:0});
+  jis.forEach(r=>{ en(r.person).su+=num(r.stowtotalunit); });
+  sip.forEach(r=>{ const w=en(r.user_logins); w.cnt++; w.q+=num(r.quantity); });
+  pm .forEach(r=>{ en(r.error_person).pick++; });
+  const workers=Object.keys(wk).filter(a=>a&&(wk[a].su||wk[a].cnt||wk[a].pick))
+    .map(a=>({acct:a, name:a2n[a]||a, ...wk[a], dpmo: wk[a].su?Math.round(wk[a].q/wk[a].su*1e6):0}))
+    .sort((x,y)=>y.dpmo-x.dpmo||y.su-x.su);
+
+  // フロア別
+  const fU={},fM={};
+  uf.forEach(r=>{const f=r.bin_module||'(不明)';fU[f]=(fU[f]||0)+num(r.units);});
+  mf.forEach(r=>{const f=r.bin_module||'(不明)';fM[f]=(fM[f]||0)+num(r.gross_units);});
+  const floors=[...new Set([...Object.keys(fU),...Object.keys(fM)])].sort()
+    .map(f=>({floor:f,units:fU[f]||0,miss:fM[f]||0,dpmo:dpmo(fM[f]||0,fU[f]||0)}));
+
+  // 生産性（PPR + FR を日別に）
+  const FR2CORE={'Each-Receive':'Receive','Pack Singles':'Pack','Pick':'Pick','Stow to Prime':'Stow to Prime','Transfer In':'Transfer In and Stow'};
+  const pv={};
+  RAW.ppr.filter(r=>r.scope==='day'&&inP(r.dateISO||r.date)).forEach(r=>{
+    const k=(r.dateISO||r.date)+'|'+(FR2CORE[r.cp]||r.cp)+'|PPR';
+    (pv[k]=pv[k]||{vol:0,hrs:0}); pv[k].vol+=r.vol; pv[k].hrs+=r.hrs;
+  });
+  RAW.fr.filter(r=>r.scope==='day'&&inP(r._date)).forEach(r=>{
+    const k=r._date+'|'+(FR2CORE[r.process]||r.process)+'|FR';
+    (pv[k]=pv[k]||{vol:0,hrs:0}); pv[k].vol+=(r.units||0); pv[k].hrs+=(r.hours||0);
+  });
+  const prodProcs={};
+  Object.keys(pv).forEach(k=>{
+    const [d,cp,src]=k.split('|');
+    const key=cp+' ('+src+')';
+    (prodProcs[key]=prodProcs[key]||[]).push({date:d,...pv[k],uph:pv[k].hrs?pv[k].vol/pv[k].hrs:0});
+  });
+  Object.values(prodProcs).forEach(a=>a.sort((x,y)=>x.date<y.date?-1:1));
+
+  // 作業者別UPH
+  const frW={};
+  RAW.fr.filter(r=>inP(r._date)).forEach(r=>{
+    const k=(FR2CORE[r.process]||r.process)+'|'+r.name;
+    (frW[k]=frW[k]||{u:0,h:0}); frW[k].u+=(r.units||0); frW[k].h+=(r.hours||0);
+  });
+  const uphRank={};
+  Object.keys(frW).forEach(k=>{
+    const [p,n]=k.split('|'); const v=frW[k];
+    if(v.h<0.5||v.u<=0) return;
+    (uphRank[p]=uphRank[p]||[]).push({name:n,uph:v.u/v.h,units:v.u,hours:v.h});
+  });
+  Object.values(uphRank).forEach(a=>a.sort((x,y)=>y.uph-x.uph));
+
+  const period=(from||opDays[0]||'')+' 〜 '+(to||opDays[opDays.length-1]||'');
+  return {site,period,from,to,opDays,gaps,daily,workers,floors,prodProcs,uphRank,
+    kpi:{stowDpmo:dpmo(sipQ,stowU), workDpmo:dpmo(pmU,ufU), shelfDpmo:dpmo(mfU,ufU),
+         stowU, pickU, ufU, sipQ, sipCnt:sip.length, pmU, mfU,
+         ppl:new Set(jis.map(r=>r.person)).size}};
+}
+
+/* ---- 出力項目の定義 ---- */
+const ITEMS=[
+  {id:'cover', t:'表紙', d:'タイトル・対象サイト・期間', always:true, has:()=>true},
+  {id:'kpi',   t:'サマリー（KPI）', d:'Stow DPMO / Pick作業ミス / Pick欠陥 / 処理Units / 稼働人数',
+   has:R=>R.opDays.length},
+  {id:'gap',   t:'データカバレッジ警告', d:'欠陥データ未取込の日を明示（DPMO過少評価の注意書き）',
+   has:R=>R.gaps.some(g=>g.missing.length)},
+  {id:'qtrend',t:'品質：日別DPMO推移', d:'Stow / Pick作業ミス / Pick欠陥 の日別折れ線グラフ',
+   has:R=>R.daily.length>1},
+  {id:'ptrend',t:'生産性：日別UPH推移', d:'工程別の日別UPH折れ線グラフ（PPR / FR）',
+   has:R=>Object.keys(R.prodProcs).length},
+  {id:'cross', t:'品質×生産性 並置', d:'工程ごとに UPH と DPMO を並べた表',
+   has:R=>Object.keys(R.prodProcs).length&&R.daily.length},
+  {id:'worker',t:'作業者別 品質（DPMO降順）', d:'上位15名の Stow処理 / 欠陥 / 個人DPMO',
+   has:R=>R.workers.length},
+  {id:'uph',   t:'作業者別 UPH ランキング', d:'工程別の上位15名（中央値比較つき）',
+   has:R=>Object.keys(R.uphRank).length},
+  {id:'floor', t:'フロア別 Pick欠陥', d:'フロアごとの処理Units / 欠品 / DPMO',
+   has:R=>R.floors.length},
+  {id:'daily', t:'日別推移（表）', d:'日付ごとの処理数・欠陥数・DPMO一覧',
+   has:R=>R.daily.length},
+];
+const sel=new Set(['cover','kpi','gap','qtrend','ptrend','cross','worker','floor']);
+
+function renderItems(){
+  const host=$('#items'); host.innerHTML='';
+  ITEMS.forEach(it=>{
+    const ok=R?it.has(R):false;
+    const d=el('div','item'+(sel.has(it.id)&&ok?' on':'')+(ok?'':' na'));
+    const cb=el('input'); cb.type='checkbox'; cb.checked=sel.has(it.id)&&ok; cb.disabled=!ok;
+    const tx=el('div'); tx.appendChild(el('div','t',it.t)); tx.appendChild(el('div','d',it.d));
+    d.appendChild(cb); d.appendChild(tx);
+    d.onclick=e=>{
+      if(!ok) return;
+      if(e.target!==cb) cb.checked=!cb.checked;
+      cb.checked?sel.add(it.id):sel.delete(it.id);
+      d.classList.toggle('on',cb.checked);
+    };
+    host.appendChild(d);
+  });
+  $('#gen').disabled=!R||!sel.size;
+}
+
+function renderSummary(){
+  const b=$('#badges'); b.innerHTML='';
+  const mk=(l,v)=>{const e=el('span','badge');e.innerHTML=l+' <b>'+v+'</b>';return e;};
+  b.appendChild(mk('稼働日',R.opDays.length+'日'));
+  b.appendChild(mk('期間',R.period));
+  b.appendChild(mk('作業者',R.workers.length+'名'));
+  const pn=Object.keys(R.prodProcs).length;
+  b.appendChild(mk('生産性 工程',pn?pn+'系列':'なし'));
+
+  const k=$('#kpis'); k.innerHTML='';
+  const kp=(l,v,c)=>{const e=el('div','kpi '+(c||''));e.appendChild(el('div','lab',l));e.appendChild(el('div','val',v));return e;};
+  k.appendChild(kp('Stow DPMO',fmtI(R.kpi.stowDpmo),'q'));
+  k.appendChild(kp('Pick作業ミス DPMO',fmtI(R.kpi.workDpmo),'q'));
+  k.appendChild(kp('Pick欠陥 DPMO',fmtI(R.kpi.shelfDpmo),'q'));
+  k.appendChild(kp('Stow処理',fmtI(R.kpi.stowU)));
+  k.appendChild(kp('稼働人数',fmtI(R.kpi.ppl)));
+
+  const miss=R.gaps.filter(g=>g.missing.length);
+  const st=$('#loadState');
+  if(miss.length){
+    st.className='warn';
+    st.innerHTML='⚠ <b>'+miss.map(g=>g.label+' '+g.missing.length+'日').join(' / ')
+      +' が未取込です。</b>該当日は欠陥0件として計上しているため、DPMOが実際より低く出ている可能性があります。（資料にも注記を入れられます）';
+  }else{
+    st.className='ok';
+    st.textContent='✓ 稼働日 '+R.opDays.length+'日すべてに欠陥データが揃っています。';
+  }
+}
+
+async function recompute(){
+  const site=$('#site').value, from=$('#from').value, to=$('#to').value;
+  R=compute(site,from,to);
+  renderSummary(); renderItems();
+}
+
+/* ---- PowerPoint生成 ---- */
+function tableRows(head, rows){
+  const H=head.map(h=>({text:h,options:{bold:true,color:'FFFFFF',fill:HDR,align:'center',fontSize:11}}));
+  return [H, ...rows.map(r=>r.map((c,i)=>({
+    text:String(c),
+    options:{align:i===0?'left':'right',fontSize:11,color:C_INK}
+  })))];
+}
+function addTitle(slide,t,sub){
+  slide.addText(t,{x:0.45,y:0.32,w:9.1,h:0.5,fontSize:22,bold:true,color:C_INK,fontFace:FONT});
+  if(sub) slide.addText(sub,{x:0.45,y:0.82,w:9.1,h:0.3,fontSize:12,color:C_MUT,fontFace:FONT});
+}
+
+async function generate(){
+  log('生成中…');
+  const pptx=new PptxGenJS();
+  pptx.layout='LAYOUT_16x9';
+  pptx.defineSlideMaster({title:'M',background:{color:'FFFFFF'}});
+  const T=$('#title').value||'HFO1 品質・生産性報告';
+  const SUB=$('#subtitle').value||'';
+  const P='対象: '+R.site+'　期間: '+R.period;
+
+  // 表紙
+  if(sel.has('cover')){
+    const s=pptx.addSlide();
+    s.addShape(pptx.ShapeType.rect,{x:0,y:0,w:10,h:1.5,fill:{color:HDR}});
+    s.addText(T,{x:0.6,y:0.35,w:8.8,h:0.8,fontSize:30,bold:true,color:'FFFFFF',fontFace:FONT});
+    s.addText(P,{x:0.6,y:2.1,w:8.8,h:0.4,fontSize:16,color:C_INK,fontFace:FONT});
+    s.addText(SUB,{x:0.6,y:2.7,w:8.8,h:0.4,fontSize:13,color:C_MUT,fontFace:FONT});
+    s.addText('作成日: '+new Date().toLocaleDateString('ja-JP'),
+      {x:0.6,y:4.8,w:8.8,h:0.3,fontSize:11,color:C_MUT,fontFace:FONT});
+  }
+
+  // KPI
+  if(sel.has('kpi')){
+    const s=pptx.addSlide(); addTitle(s,'サマリー',P);
+    const K=[
+      ['Stow DPMO', fmtI(R.kpi.stowDpmo), C_Q],
+      ['Pick作業ミス DPMO', fmtI(R.kpi.workDpmo), C_Q],
+      ['Pick欠陥 DPMO', fmtI(R.kpi.shelfDpmo), C_Q],
+    ];
+    K.forEach((k,i)=>{
+      const x=0.45+i*3.05;
+      s.addShape(pptx.ShapeType.roundRect,{x,y:1.35,w:2.85,h:1.35,fill:{color:'F7F5FB'},line:{color:'E3E8EF'}});
+      s.addText(k[0],{x:x+0.15,y:1.45,w:2.55,h:0.3,fontSize:11,color:C_MUT,fontFace:FONT});
+      s.addText(k[1],{x:x+0.15,y:1.75,w:2.55,h:0.75,fontSize:30,bold:true,color:k[2],fontFace:FONT});
+    });
+    const rows=[
+      ['Stow処理 Units', fmtI(R.kpi.stowU)],
+      ['Pick処理 Units', fmtI(R.kpi.ufU||R.kpi.pickU)],
+      ['Stow欠陥 数', fmtI(R.kpi.sipQ)+'（'+R.kpi.sipCnt+'件）'],
+      ['Pick作業ミス Units', fmtI(R.kpi.pmU)],
+      ['Pick欠陥 Units', fmtI(R.kpi.mfU)],
+      ['稼働人数（延べ）', fmtI(R.kpi.ppl)+' 名'],
+      ['稼働日数', R.opDays.length+' 日'],
+    ];
+    s.addTable(tableRows(['項目','値'],rows),
+      {x:0.45,y:2.95,w:9.1,colW:[5.5,3.6],border:{pt:0.5,color:'D9DEE7'},fontFace:FONT});
+    s.addText('DPMOの分母は実績データ(OpsUnits)。Stow分母には Transfer In を含む。',
+      {x:0.45,y:5.05,w:9.1,h:0.25,fontSize:9,color:C_MUT,fontFace:FONT});
+  }
+
+  // 欠落警告
+  if(sel.has('gap')){
+    const s=pptx.addSlide(); addTitle(s,'データカバレッジ',P);
+    s.addShape(pptx.ShapeType.roundRect,{x:0.45,y:1.35,w:9.1,h:0.85,fill:{color:'FFF7ED'},line:{color:'FDBA74'}});
+    s.addText('⚠ 欠陥データが未取込の日があります。該当日は欠陥0件として計上しているため、DPMOが実際より低く出ている可能性があります。',
+      {x:0.65,y:1.5,w:8.7,h:0.55,fontSize:12,color:'9A3412',fontFace:FONT});
+    const rows=R.gaps.map(g=>[g.label, g.missing.length+' 日',
+      g.missing.length? (g.missing.slice(0,8).join(', ')+(g.missing.length>8?' …':'')) : '欠落なし']);
+    s.addTable(tableRows(['データ','欠落日数','欠落日'],rows),
+      {x:0.45,y:2.45,w:9.1,colW:[2.5,1.3,5.3],border:{pt:0.5,color:'D9DEE7'},fontFace:FONT});
+  }
+
+  // 品質: 日別DPMO推移
+  if(sel.has('qtrend')){
+    const s=pptx.addSlide(); addTitle(s,'品質：日別DPMO推移',P);
+    const lab=R.daily.map(d=>d.date.slice(5));
+    s.addChart(pptx.ChartType.line,[
+      {name:'Stow DPMO',        labels:lab, values:R.daily.map(d=>d.stowDpmo)},
+      {name:'Pick作業ミス DPMO', labels:lab, values:R.daily.map(d=>d.workDpmo)},
+      {name:'Pick欠陥 DPMO',     labels:lab, values:R.daily.map(d=>d.shelfDpmo)},
+    ],{x:0.45,y:1.3,w:9.1,h:4.0,showLegend:true,legendPos:'b',
+       chartColors:[C_Q,'C47F17','2F855A'],lineSize:2,
+       catAxisLabelFontSize:9,valAxisLabelFontSize:9,valAxisTitle:'DPMO',showValAxisTitle:true,
+       catAxisLabelRotate:45});
+  }
+
+  // 生産性: 日別UPH推移
+  if(sel.has('ptrend')){
+    const s=pptx.addSlide(); addTitle(s,'生産性：日別UPH推移',P);
+    const keys=Object.keys(R.prodProcs);
+    const dates=[...new Set(keys.flatMap(k=>R.prodProcs[k].map(x=>x.date)))].sort();
+    const lab=dates.map(d=>d.slice(5));
+    const COL=['0F9D8F','1F5FA8','C26A1E','7B4FB0','C0392B','2F8F4E','D9A406'];
+    const series=keys.slice(0,6).map((k,i)=>{
+      const m={}; R.prodProcs[k].forEach(x=>m[x.date]=x.uph);
+      return {name:k, labels:lab, values:dates.map(d=>m[d]!=null?Math.round(m[d]*10)/10:null)};
+    });
+    s.addChart(pptx.ChartType.line,series,
+      {x:0.45,y:1.3,w:9.1,h:4.0,showLegend:true,legendPos:'b',
+       chartColors:COL,lineSize:2,
+       catAxisLabelFontSize:9,valAxisLabelFontSize:9,valAxisTitle:'UPH (u/h)',showValAxisTitle:true,
+       catAxisLabelRotate:45});
+  }
+
+  // 品質×生産性 並置
+  if(sel.has('cross')){
+    const s=pptx.addSlide(); addTitle(s,'品質 × 生産性（工程別）',P);
+    const Q={'Stow to Prime':R.kpi.stowDpmo,'Pick':R.kpi.workDpmo};
+    const rows=Object.keys(R.prodProcs).map(k=>{
+      const a=R.prodProcs[k];
+      const v=a.reduce((s,x)=>s+x.vol,0), h=a.reduce((s,x)=>s+x.hrs,0);
+      const base=k.replace(/ \((PPR|FR)\)$/,'');
+      const q=Q[base];
+      return [k, fmt1(h?v/h:0), fmtI(v), fmt1(h), q!=null?fmtI(q):'—'];
+    });
+    s.addTable(tableRows(['工程 (ソース)','UPH','処理Vol','工数(h)','DPMO'],rows),
+      {x:0.45,y:1.35,w:9.1,colW:[2.9,1.4,1.8,1.5,1.5],border:{pt:0.5,color:'D9DEE7'},fontFace:FONT});
+    s.addText('UPHは生産性データ、DPMOは品質データから算出。指標の性質が異なるため同一グラフには重ねず、表で並置しています。',
+      {x:0.45,y:5.05,w:9.1,h:0.3,fontSize:9,color:C_MUT,fontFace:FONT});
+  }
+
+  // 作業者別 品質
+  if(sel.has('worker')){
+    const s=pptx.addSlide(); addTitle(s,'作業者別 品質（Stow DPMO 降順・上位15名）',P);
+    const rows=R.workers.slice(0,15).map((w,i)=>
+      [String(i+1)+'. '+w.name, fmtI(w.su), String(w.cnt), String(w.q), String(w.pick), fmtI(w.dpmo)]);
+    s.addTable(tableRows(['作業者','Stow処理','欠陥件','欠陥数','Pickミス','個人DPMO'],rows),
+      {x:0.45,y:1.35,w:9.1,colW:[3.0,1.5,1.1,1.1,1.2,1.2],
+       border:{pt:0.5,color:'D9DEE7'},fontFace:FONT,autoPage:false});
+  }
+
+  // 作業者別 UPH
+  if(sel.has('uph')){
+    Object.keys(R.uphRank).forEach(proc=>{
+      const list=R.uphRank[proc];
+      if(!list.length) return;
+      const med=[...list].map(x=>x.uph).sort((a,b)=>a-b)[Math.floor(list.length/2)];
+      const s=pptx.addSlide();
+      addTitle(s,'作業者別 UPH ランキング：'+proc,P+'　／　中央値 '+fmt1(med)+' u/h');
+      const rows=list.slice(0,15).map((x,i)=>
+        [String(i+1)+'. '+x.name, fmt1(x.uph), fmtI(x.units), fmt1(x.hours),
+         x.uph>=med*1.1?'◎':x.uph>=med*0.9?'○':'△']);
+      s.addTable(tableRows(['作業者','UPH','処理Units','工数(h)','評価'],rows),
+        {x:0.45,y:1.35,w:9.1,colW:[3.4,1.5,1.7,1.5,1.0],
+         border:{pt:0.5,color:'D9DEE7'},fontFace:FONT});
+    });
+  }
+
+  // フロア別
+  if(sel.has('floor')){
+    const s=pptx.addSlide(); addTitle(s,'フロア別 Pick欠陥',P);
+    const rows=R.floors.map(f=>[f.floor,fmtI(f.units),fmtI(f.miss),fmtI(f.dpmo),
+      (f.units?Math.round(f.miss/f.units*10000)/100:0)+'%']);
+    s.addTable(tableRows(['フロア','Pick処理Units','欠品Units','DPMO','欠品率'],rows),
+      {x:0.45,y:1.35,w:9.1,colW:[2.5,2.0,1.7,1.6,1.3],border:{pt:0.5,color:'D9DEE7'},fontFace:FONT});
+  }
+
+  // 日別表
+  if(sel.has('daily')){
+    const s=pptx.addSlide(); addTitle(s,'日別推移',P);
+    const rows=R.daily.map(d=>[d.date,fmtI(d.su),String(d.ppl),String(d.sq),
+      fmtI(d.stowDpmo),fmtI(d.workDpmo),fmtI(d.shelfDpmo)]);
+    s.addTable(tableRows(['日付','Stow処理','人数','欠陥数','Stow DPMO','Pickミス DPMO','Pick欠陥 DPMO'],rows),
+      {x:0.45,y:1.35,w:9.1,colW:[1.5,1.4,0.9,1.1,1.5,1.5,1.2],
+       border:{pt:0.5,color:'D9DEE7'},fontFace:FONT,autoPage:true,autoPageRepeatHeader:true});
+  }
+
+  const fn='HFO1_品質生産性報告_'+(R.from||R.opDays[0]||'')+'_'+(R.to||R.opDays[R.opDays.length-1]||'')+'.pptx';
+  await pptx.writeFile({fileName:fn});
+  log('✓ 生成しました：'+fn);
+}
+
+/* ---- 起動 ---- */
+(async()=>{
+  try{
+    await openDB();
+    RAW.q     = await all(QSTORE);
+    RAW.fr    = await all(RSTORE);
+    RAW.ppr   = await all(PSTORE);
+    RAW.master= await all(MSTORE);
+  }catch(e){
+    $('#loadState').className='warn';
+    $('#loadState').textContent='✕ データを読み込めませんでした：'+e.message;
+    return;
+  }
+  if(!RAW.q.length){
+    $('#loadState').className='warn';
+    $('#loadState').innerHTML='✕ 品質データがありません。先に<a href="./index.html">ダッシュボード</a>でデータを取り込んでください。';
+    return;
+  }
+  // サイト
+  const sites=[...new Set(RAW.q.map(r=>r.warehouse_id||r.site).filter(Boolean))].sort();
+  const ss=$('#site');
+  sites.forEach(x=>{const o=el('option');o.value=x;o.textContent=x;ss.appendChild(o);});
+  const qs=new URLSearchParams(location.search);
+  ss.value = qs.get('site') || sites.find(x=>/HFO1/i.test(x)) || sites[0];
+  if(qs.get('from')) $('#from').value=qs.get('from');
+  if(qs.get('to'))   $('#to').value  =qs.get('to');
+  await recompute();
+})();
+$('#reload').onclick=recompute;
+$('#site').onchange=recompute;
+$('#selAll').onclick=()=>{ITEMS.forEach(i=>{if(R&&i.has(R))sel.add(i.id);});renderItems();};
+$('#selNone').onclick=()=>{sel.clear();sel.add('cover');renderItems();};
+$('#gen').onclick=()=>generate().catch(e=>log('✕ 生成に失敗しました：'+e.message));
+</script>
+</body>
+</html>
