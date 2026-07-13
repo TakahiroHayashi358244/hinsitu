@@ -227,11 +227,15 @@ tr.out td{color:var(--mut);font-style:italic}
             <input type="file" id="snapFile" accept=".gz,.json" style="display:none">
           </label>
           <span style="flex:1"></span>
+          <label style="display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--mut);cursor:pointer">
+            <input type="checkbox" id="chkAdmin" style="width:15px;height:15px">管理端末（自動更新しない）
+          </label>
           <button class="btn gho" id="btnSnapOut">スナップショットを書き出す（管理者）</button>
         </div>
         <div class="note" style="margin-top:8px">
           <b>閲覧のみの端末</b>は「最新データを読み込む」を押すだけです（取込作業もGAS設定も不要）。管理端末のデータが<b>そのまま忠実に再現</b>されます。<br>
-          <b>管理端末</b>はデータ取込後に「スナップショットを書き出す」→ 出力された <code>snapshot.json.gz</code> をリポジトリ直下に置いて push してください。
+          <b>管理端末</b>はデータ取込後に「スナップショットを書き出す」→ 出力された <code>snapshot.json.gz</code> をリポジトリ直下に置いて push してください。<br>
+          閲覧端末は<b>起動時に自動で鮮度を確認</b>し、新しいスナップショットがあれば自動更新します（ボタン操作は不要）。
         </div>
         <div id="snapLog" class="note" style="margin-top:6px"></div>
       </div>
@@ -1296,6 +1300,67 @@ async function gunzip(u8){
   return new Uint8Array(await blob.arrayBuffer());
 }
 
+
+/* ---------- スナップショット自動更新 ---------- */
+const LS_APPLIED='hfo1_snap_applied';   // 最後に適用したスナップショットの at
+const LS_ADMIN='hfo1_admin_mode';       // 管理端末モード（自動適用しない）
+
+function isAdminMode(){ try{ return localStorage.getItem(LS_ADMIN)==='1'; }catch(e){ return false; } }
+function setAdminMode(v){ try{ localStorage.setItem(LS_ADMIN, v?'1':'0'); }catch(e){} }
+function appliedAt(){ try{ return localStorage.getItem(LS_APPLIED)||''; }catch(e){ return ''; } }
+function setAppliedAt(v){ try{ localStorage.setItem(LS_APPLIED, v||''); }catch(e){} }
+
+async function autoSyncSnapshot(){
+  try{
+    const localCount=await countStore(QSTORE);
+
+    // 管理端末は自動適用しない（取り込んだデータを勝手に置換されると困る）
+    if(isAdminMode() && localCount>0){
+      $('#snapBadge').textContent='管理端末モード（自動更新オフ）';
+      return;
+    }
+
+    // まず本体を取得（.gz は数十KB程度なので、HEADで往復するより素直に取る方が速い）
+    const res=await fetch(SNAP_FILE+'?t='+Date.now(),{cache:'no-store'});
+    if(!res.ok) return;                       // 置かれていなければ静かに終了
+    const buf=new Uint8Array(await res.arrayBuffer());
+
+    // 中身の at を見て鮮度を判定（HTTPヘッダより確実）
+    const plain=await gunzip(buf);
+    let meta;
+    try{ meta=JSON.parse(new TextDecoder().decode(plain)); }catch(e){ return; }
+    if(!meta || !meta._snap) return;
+
+    const remoteAt=meta.at||'';
+    const localAt=appliedAt();
+
+    if(localCount===0){
+      // 初回：無条件に適用
+      await applySnapshot(buf, SNAP_FILE+'（自動）');
+      setAppliedAt(remoteAt);
+      logLine('✓ 共有スナップショットを読み込みました（'+fmtWhen(remoteAt)+'時点）','ok');
+      $('#snapBadge').textContent='最新データ適用済み（'+fmtWhen(remoteAt)+'）';
+      return;
+    }
+
+    if(remoteAt && remoteAt>localAt){
+      // 更新あり：自動で置換
+      await applySnapshot(buf, SNAP_FILE+'（自動更新）');
+      setAppliedAt(remoteAt);
+      logLine('✓ 新しい共有データを検出したため自動更新しました（'+fmtWhen(remoteAt)+'時点）','ok');
+      $('#snapBadge').textContent='最新データ適用済み（'+fmtWhen(remoteAt)+'）';
+      toast('最新データに更新しました');
+    } else {
+      $('#snapBadge').textContent='最新です（'+fmtWhen(localAt||remoteAt)+'）';
+    }
+  }catch(e){ /* 取得できなければ何もしない */ }
+}
+function fmtWhen(iso){
+  if(!iso) return '不明';
+  const d=new Date(iso);
+  return isNaN(d)? iso : d.toLocaleString('ja-JP',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});
+}
+
 async function buildSnapshot(){
   const snap={_snap:SNAP_VER, at:new Date().toISOString(), site:'HFO1'};
   for(const S of SYNC_STORES) snap[S.sheet]=await readStore(S.store);
@@ -1316,7 +1381,9 @@ async function exportSnapshot(){
     a.download=SNAP_FILE;
     a.click();
     setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+    setAdminMode(true);   // 書き出した端末＝管理端末。以後この端末は自動置換しない
     syncLog('✓ スナップショットを書き出しました（'+(gz.length/1024).toFixed(0)+'KB）: '+counts,'ok','#snapLog');
+    syncLog('　この端末は「管理端末モード」になりました（自動更新で上書きされません）','dim','#snapLog');
     syncLog('　→ このファイルをリポジトリ直下に '+SNAP_FILE+' として置いてください','dim','#snapLog');
     toast('スナップショットを書き出しました');
   }catch(e){ syncLog('✕ '+e.message,'er','#snapLog'); }
@@ -1338,6 +1405,7 @@ async function applySnapshot(u8, srcLabel){
     if(rows.length) await writeStore(S.store, rows);
   }
   await loadMaster(); await reloadFR(); await reloadPPR(); await refreshState();
+  setAppliedAt(snap.at||'');       // 適用済みの版を記録（次回起動時の鮮度判定に使う）
   const counts=SYNC_STORES.map(S=>S.sheet+':'+(snap[S.sheet]||[]).length).join(' / ');
   const when=snap.at? new Date(snap.at).toLocaleString('ja-JP') : '不明';
   syncLog('✓ スナップショットを適用しました（'+srcLabel+'）　作成: '+when,'ok','#snapLog');
@@ -2728,20 +2796,11 @@ async function init(){
   await reloadFR();
   await reloadPPR();
 
-  // ★閲覧端末の初回起動: データが空なら snapshot.json.gz を自動で読みに行く
-  //   （見つからなければ何もしない＝管理端末では邪魔にならない）
-  try{
-    const n=await countStore(QSTORE);
-    if(n===0){
-      const res=await fetch(SNAP_FILE+'?t='+Date.now(),{cache:'no-store'});
-      if(res.ok){
-        const buf=new Uint8Array(await res.arrayBuffer());
-        const {when}=await applySnapshot(buf, SNAP_FILE+'（自動）');
-        const b=$('#snapBadge'); if(b) b.textContent='最新データ適用済み（'+when+'）';
-        logLine('✓ 共有スナップショットを自動読み込みしました（'+when+'時点）','ok');
-      }
-    }
-  }catch(e){ /* 無ければ静かに無視 */ }
+  // ★起動時にスナップショットの鮮度を確認し、新しければ自動更新する。
+  //   - 初回(データ空)      : 無条件に適用
+  //   - 2回目以降           : スナップショットの作成日時が、前回適用したものより新しいときだけ適用
+  //   - 管理端末(自分で取込) : 「管理端末モード」がONなら自動適用しない（自分の作業を上書きしないため）
+  await autoSyncSnapshot();
   await reloadPPR();
   await refreshState();
 
@@ -2766,6 +2825,11 @@ async function init(){
   const saveUrl=()=>{ try{ localStorage.setItem('hfo1_gas_url', gu.value.trim()); }catch(e){} };
   gu.onchange=saveUrl; gu.oninput=saveUrl;
   // --- スナップショット ---
+  const ca=$('#chkAdmin');
+  ca.checked=isAdminMode();
+  ca.onchange=()=>{ setAdminMode(ca.checked);
+    $('#snapBadge').textContent = ca.checked?'管理端末モード（自動更新オフ）':'';
+    toast(ca.checked?'管理端末モードON（自動更新しません）':'管理端末モードOFF（起動時に自動更新します）'); };
   $('#btnSnapIn').onclick=()=>pullSnapshot(false);
   $('#btnSnapOut').onclick=exportSnapshot;
   $('#snapFile').addEventListener('change',async e=>{ if(e.target.files[0]) await importSnapshotFile(e.target.files[0]); e.target.value=''; });
