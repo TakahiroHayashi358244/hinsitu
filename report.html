@@ -503,9 +503,11 @@ async function generate(){
     $('#loadState').textContent='✕ データを読み込めませんでした：'+e.message;
     return;
   }
-  // データが空ならスナップショットを自動読込（閲覧端末はこれだけで使える）
-  if(!RAW.q.length){
-    try{
+  // スナップショットの鮮度を確認し、ローカルより新しければそちらを使う
+  // （管理端末モードの端末では、自分のIndexedDBを優先する）
+  try{
+    const admin=(localStorage.getItem('hfo1_admin_mode')==='1');
+    if(!(admin && RAW.q.length)){
       const res=await fetch('snapshot.json.gz?t='+Date.now(),{cache:'no-store'});
       if(res.ok){
         let u8=new Uint8Array(await res.arrayBuffer());
@@ -515,11 +517,15 @@ async function generate(){
           u8=new Uint8Array(await b.arrayBuffer());
         }
         const snap=JSON.parse(new TextDecoder().decode(u8));
-        RAW.q=snap.qrecords||[]; RAW.fr=snap.frrecords||[];
-        RAW.ppr=snap.pprrecords||[]; RAW.master=snap.qmaster||[];
+        const localAt=localStorage.getItem('hfo1_snap_applied')||'';
+        // DBが空、または配布版の方が新しい → 配布版を採用
+        if(!RAW.q.length || ((snap.at||'') > localAt)){
+          RAW.q=snap.qrecords||[]; RAW.fr=snap.frrecords||[];
+          RAW.ppr=snap.pprrecords||[]; RAW.master=snap.qmaster||[];
+        }
       }
-    }catch(e){}
-  }
+    }
+  }catch(e){}
   if(!RAW.q.length){
     $('#loadState').className='warn';
     $('#loadState').innerHTML='✕ 品質データがありません。先に<a href="./index.html">ダッシュボード</a>でデータを取り込んでください。';
