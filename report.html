@@ -503,6 +503,23 @@ async function generate(){
     $('#loadState').textContent='✕ データを読み込めませんでした：'+e.message;
     return;
   }
+  // データが空ならスナップショットを自動読込（閲覧端末はこれだけで使える）
+  if(!RAW.q.length){
+    try{
+      const res=await fetch('snapshot.json.gz?t='+Date.now(),{cache:'no-store'});
+      if(res.ok){
+        let u8=new Uint8Array(await res.arrayBuffer());
+        if(u8[0]===0x1f&&u8[1]===0x8b){
+          const ds=new DecompressionStream('gzip');
+          const b=await new Response(new Blob([u8]).stream().pipeThrough(ds)).blob();
+          u8=new Uint8Array(await b.arrayBuffer());
+        }
+        const snap=JSON.parse(new TextDecoder().decode(u8));
+        RAW.q=snap.qrecords||[]; RAW.fr=snap.frrecords||[];
+        RAW.ppr=snap.pprrecords||[]; RAW.master=snap.qmaster||[];
+      }
+    }catch(e){}
+  }
   if(!RAW.q.length){
     $('#loadState').className='warn';
     $('#loadState').innerHTML='✕ 品質データがありません。先に<a href="./index.html">ダッシュボード</a>でデータを取り込んでください。';
