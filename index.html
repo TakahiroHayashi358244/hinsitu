@@ -214,6 +214,29 @@ tr.out td{color:var(--mut);font-style:italic}
     </div>
     <div class="log" id="log"></div>
 
+    <div class="card" id="snapCard" style="margin-top:14px;border:1px solid var(--line);border-radius:12px;background:var(--panel)">
+      <div style="padding:11px 15px;border-bottom:1px solid var(--line);font-weight:700;display:flex;justify-content:space-between;align-items:center;gap:10px">
+        <span>最新データの共有（スナップショット）</span>
+        <span id="snapBadge" style="font-size:12px;color:var(--mut);font-weight:400"></span>
+      </div>
+      <div style="padding:13px 15px">
+        <div class="row" style="gap:8px;flex-wrap:wrap">
+          <button class="btn pri" id="btnSnapIn">最新データを読み込む</button>
+          <label class="btn" style="cursor:pointer;display:inline-flex;align-items:center">
+            ファイルから読み込む
+            <input type="file" id="snapFile" accept=".gz,.json" style="display:none">
+          </label>
+          <span style="flex:1"></span>
+          <button class="btn gho" id="btnSnapOut">スナップショットを書き出す（管理者）</button>
+        </div>
+        <div class="note" style="margin-top:8px">
+          <b>閲覧のみの端末</b>は「最新データを読み込む」を押すだけです（取込作業もGAS設定も不要）。管理端末のデータが<b>そのまま忠実に再現</b>されます。<br>
+          <b>管理端末</b>はデータ取込後に「スナップショットを書き出す」→ 出力された <code>snapshot.json.gz</code> をリポジトリ直下に置いて push してください。
+        </div>
+        <div id="snapLog" class="note" style="margin-top:6px"></div>
+      </div>
+    </div>
+
     <div class="card" id="syncCard" style="margin-top:14px;border:1px solid var(--line);border-radius:12px;background:var(--panel)">
       <div style="padding:11px 15px;border-bottom:1px solid var(--line);font-weight:700;display:flex;justify-content:space-between;align-items:center;gap:10px">
         <span>クラウド同期（GAS）— 別端末とデータを共有</span>
@@ -1000,8 +1023,8 @@ const SYNC_STORES=[
 ];
 const CHUNK=400;   // 1リクエストあたりの件数（GASの実行時間/サイズ上限に収める）
 
-function syncLog(msg,cls){
-  const L=$('#syncLog');
+function syncLog(msg,cls,target){
+  const L=$(target||'#syncLog');
   if(!L) return;
   const d=el('div',cls||'',msg);
   d.style.cssText='padding:2px 0;'+(cls==='er'?'color:#b91c1c':cls==='ok'?'color:#065f46':'color:#6b7a90');
@@ -1244,6 +1267,122 @@ function showGasCode(){
     + GAS_CODE.replace(/&/g,'&amp;').replace(/</g,'&lt;')
     +'</pre></body></html>');
   w.document.close();
+}
+
+
+/* =========================================================
+   [新] スナップショット配布
+   「1台が取り込み → 他端末は見るだけ」運用のための機能。
+   管理端末が全データを1ファイル(.json.gz)に書き出し、リポジトリに置く。
+   閲覧端末は開くだけで、IndexedDBを丸ごと置換して同一状態を再現する。
+   - GAS不要・権限設定不要・取込作業不要
+   - 置換方式なので「消したはずのデータが残る」ことがない＝忠実に再現
+   ========================================================= */
+const SNAP_FILE='snapshot.json.gz';   // リポジトリ直下に置くファイル名
+const SNAP_VER=1;
+
+/* gzip圧縮/解凍（CompressionStream。Chrome/Edge/Safari対応） */
+async function gzip(u8){
+  if(typeof CompressionStream==='undefined') return u8;   // 非対応なら無圧縮
+  const cs=new CompressionStream('gzip');
+  const blob=await new Response(new Blob([u8]).stream().pipeThrough(cs)).blob();
+  return new Uint8Array(await blob.arrayBuffer());
+}
+async function gunzip(u8){
+  // gzipマジックナンバー(1f 8b)が無ければ生JSONとして扱う
+  if(!(u8[0]===0x1f && u8[1]===0x8b)) return u8;
+  const ds=new DecompressionStream('gzip');
+  const blob=await new Response(new Blob([u8]).stream().pipeThrough(ds)).blob();
+  return new Uint8Array(await blob.arrayBuffer());
+}
+
+async function buildSnapshot(){
+  const snap={_snap:SNAP_VER, at:new Date().toISOString(), site:'HFO1'};
+  for(const S of SYNC_STORES) snap[S.sheet]=await readStore(S.store);
+  const counts=SYNC_STORES.map(S=>S.sheet+':'+snap[S.sheet].length).join(' / ');
+  return {snap, counts};
+}
+
+/* 管理端末：スナップショットを書き出す */
+async function exportSnapshot(){
+  const btn=$('#btnSnapOut'); btn.disabled=true;
+  try{
+    const {snap,counts}=await buildSnapshot();
+    const raw=new TextEncoder().encode(JSON.stringify(snap));
+    const gz=await gzip(raw);
+    const blob=new Blob([gz],{type:'application/gzip'});
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(blob);
+    a.download=SNAP_FILE;
+    a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+    syncLog('✓ スナップショットを書き出しました（'+(gz.length/1024).toFixed(0)+'KB）: '+counts,'ok','#snapLog');
+    syncLog('　→ このファイルをリポジトリ直下に '+SNAP_FILE+' として置いてください','dim','#snapLog');
+    toast('スナップショットを書き出しました');
+  }catch(e){ syncLog('✕ '+e.message,'er','#snapLog'); }
+  btn.disabled=false;
+}
+
+/* 閲覧端末：スナップショットを読み込んでIndexedDBを丸ごと置換 */
+async function applySnapshot(u8, srcLabel){
+  const plain=await gunzip(u8);
+  let snap;
+  try{ snap=JSON.parse(new TextDecoder().decode(plain)); }
+  catch(e){ throw new Error('スナップショットを解析できません（ファイルが壊れている可能性）'); }
+  if(!snap._snap) throw new Error('スナップショット形式ではありません');
+
+  // ★置換：既存を消してから入れる。これで「消したはずのデータが残る」ことがない
+  for(const S of SYNC_STORES){
+    await clearStore(S.store);
+    const rows=snap[S.sheet]||[];
+    if(rows.length) await writeStore(S.store, rows);
+  }
+  await loadMaster(); await reloadFR(); await reloadPPR(); await refreshState();
+  const counts=SYNC_STORES.map(S=>S.sheet+':'+(snap[S.sheet]||[]).length).join(' / ');
+  const when=snap.at? new Date(snap.at).toLocaleString('ja-JP') : '不明';
+  syncLog('✓ スナップショットを適用しました（'+srcLabel+'）　作成: '+when,'ok','#snapLog');
+  syncLog('　'+counts,'dim','#snapLog');
+  return {when, counts};
+}
+function countStore(name){
+  return new Promise(res=>{
+    if(!db.objectStoreNames.contains(name)) return res(0);
+    const r=db.transaction(name,'readonly').objectStore(name).count();
+    r.onsuccess=()=>res(r.result||0); r.onerror=()=>res(0);
+  });
+}
+function clearStore(name){
+  return new Promise(res=>{
+    if(!db.objectStoreNames.contains(name)) return res();
+    const r=db.transaction(name,'readwrite').objectStore(name).clear();
+    r.onsuccess=()=>res(); r.onerror=()=>res();
+  });
+}
+
+/* リポジトリ上の snapshot.json.gz を取得して適用 */
+async function pullSnapshot(silent){
+  const btn=$('#btnSnapIn'); if(btn) btn.disabled=true;
+  try{
+    const res=await fetch(SNAP_FILE+'?t='+Date.now(), {cache:'no-store'});
+    if(!res.ok) throw new Error(SNAP_FILE+' が見つかりません（HTTP '+res.status+'）');
+    const buf=new Uint8Array(await res.arrayBuffer());
+    const {when}=await applySnapshot(buf, SNAP_FILE);
+    const b=$('#snapBadge'); if(b) b.textContent='最新データ適用済み（'+when+'）';
+    toast('最新データを読み込みました');
+  }catch(e){
+    if(!silent) syncLog('✕ '+e.message,'er','#snapLog');
+  }
+  if(btn) btn.disabled=false;
+}
+
+/* 手元のスナップショットファイルを適用（共有ドライブ経由で配る場合） */
+async function importSnapshotFile(file){
+  try{
+    const buf=new Uint8Array(await file.arrayBuffer());
+    const {when}=await applySnapshot(buf, file.name);
+    const b=$('#snapBadge'); if(b) b.textContent='最新データ適用済み（'+when+'）';
+    toast('スナップショットを適用しました');
+  }catch(e){ syncLog('✕ '+e.message,'er','#snapLog'); }
 }
 
 /* =========================================================
@@ -2588,6 +2727,22 @@ async function init(){
   await loadMaster();
   await reloadFR();
   await reloadPPR();
+
+  // ★閲覧端末の初回起動: データが空なら snapshot.json.gz を自動で読みに行く
+  //   （見つからなければ何もしない＝管理端末では邪魔にならない）
+  try{
+    const n=await countStore(QSTORE);
+    if(n===0){
+      const res=await fetch(SNAP_FILE+'?t='+Date.now(),{cache:'no-store'});
+      if(res.ok){
+        const buf=new Uint8Array(await res.arrayBuffer());
+        const {when}=await applySnapshot(buf, SNAP_FILE+'（自動）');
+        const b=$('#snapBadge'); if(b) b.textContent='最新データ適用済み（'+when+'）';
+        logLine('✓ 共有スナップショットを自動読み込みしました（'+when+'時点）','ok');
+      }
+    }
+  }catch(e){ /* 無ければ静かに無視 */ }
+  await reloadPPR();
   await refreshState();
 
   const file=$('#file'), drop=$('#drop');
@@ -2610,6 +2765,11 @@ async function init(){
   try{ gu.value=localStorage.getItem('hfo1_gas_url')||''; }catch(e){}
   const saveUrl=()=>{ try{ localStorage.setItem('hfo1_gas_url', gu.value.trim()); }catch(e){} };
   gu.onchange=saveUrl; gu.oninput=saveUrl;
+  // --- スナップショット ---
+  $('#btnSnapIn').onclick=()=>pullSnapshot(false);
+  $('#btnSnapOut').onclick=exportSnapshot;
+  $('#snapFile').addEventListener('change',async e=>{ if(e.target.files[0]) await importSnapshotFile(e.target.files[0]); e.target.value=''; });
+
   $('#btnTest').onclick=gasTest;
   $('#btnPush').onclick=gasPush;
   $('#btnPull').onclick=gasPull;
