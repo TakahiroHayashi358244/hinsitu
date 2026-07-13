@@ -213,6 +213,30 @@ tr.out td{color:var(--mut);font-style:italic}
       <button class="btn gho" id="btnClearQual" disabled>品質データをクリア(DB)</button>
     </div>
     <div class="log" id="log"></div>
+
+    <div class="card" id="syncCard" style="margin-top:14px;border:1px solid var(--line);border-radius:12px;background:var(--panel)">
+      <div style="padding:11px 15px;border-bottom:1px solid var(--line);font-weight:700;display:flex;justify-content:space-between;align-items:center;gap:10px">
+        <span>クラウド同期（GAS）— 別端末とデータを共有</span>
+        <span id="syncBadge" style="font-size:12px;color:var(--mut);font-weight:400"></span>
+      </div>
+      <div style="padding:13px 15px">
+        <div class="row" style="gap:8px;align-items:flex-end;flex-wrap:wrap">
+          <div style="flex:1;min-width:280px">
+            <label style="font-size:12px;color:var(--mut);display:block;margin-bottom:4px">GAS ウェブアプリURL（/exec で終わるもの）</label>
+            <input type="text" id="gasUrl" placeholder="https://script.google.com/macros/s/AKfyc.../exec"
+              style="width:100%;padding:8px 10px;border:1px solid #cfd8e6;border-radius:8px;font-size:12.5px">
+          </div>
+          <button class="btn" id="btnPush">↑ アップロード</button>
+          <button class="btn" id="btnPull">↓ ダウンロード</button>
+          <button class="btn gho" id="btnGasCode">GASコードを表示</button>
+        </div>
+        <div class="note" style="margin-top:8px">
+          URLはこのブラウザに保存されます。<b>アップロード</b>＝この端末のデータをGASへ送信（同一レコードは上書き）。<b>ダウンロード</b>＝GASのデータをこの端末へ取り込み。
+          重複排除キーは行の内容から決まるため、<b>どの端末でどの順に取り込んでも同じ結果</b>になります。
+        </div>
+        <div id="syncLog" class="note" style="margin-top:6px"></div>
+      </div>
+    </div>
   </div>
 
   <div id="dash"></div>
@@ -509,11 +533,19 @@ function clearFileLogs(){ return new Promise(res=>{const r=ftx('readwrite').clea
 function acctName(){ const m={}; MASTER.forEach(r=>{ if(r.アカウント && !(r.アカウント in m)) m[r.アカウント]=r.氏名; }); return m; }
 
 /* ---------- キー生成(重複排除) ---------- */
+/* ★キーは「行の内容」だけから決める（ファイル名・行番号は使わない）。
+   ファイル名や行番号を混ぜると、同じデータでも取込元ZIPが違うだけで別レコード扱いになり、
+   ローリング配信で重複登録される。端末間で同期する場合も一致しなくなるため、内容ベース固定。 */
+function stableRowKey(rowObj){
+  // 列順に依存しないよう、キー名でソートして連結
+  const keys=Object.keys(rowObj).filter(k=>!k.startsWith('_')).sort();
+  return keys.map(k=>k+'='+String(rowObj[k]==null?'':rowObj[k]).trim()).join('\u0001');
+}
 function makeKey(ds,rowObj,sourceFile,rowIdx){
-  if(ds.rowHashKey) return ds.id+'|'+sourceFile+'|'+rowIdx+'|'+JSON.stringify(rowObj);
-  const parts=ds.keyFields.map(f=>rowObj[f]!==undefined?rowObj[f]:'');
+  if(ds.rowHashKey) return ds.id+'|H|'+stableRowKey(rowObj);
+  const parts=ds.keyFields.map(f=>rowObj[f]!==undefined?String(rowObj[f]).trim():'');
   const joined=parts.join('|');
-  if(joined.replace(/\|/g,'')==='') return ds.id+'|'+sourceFile+'|'+rowIdx+'|'+JSON.stringify(rowObj);
+  if(joined.replace(/\|/g,'')==='') return ds.id+'|H|'+stableRowKey(rowObj);
   return ds.id+'|'+joined;
 }
 
@@ -931,6 +963,216 @@ async function computeQuality(site, from, to, coverageChoice){
 }
 
 
+
+
+/* =========================================================
+   [新] GAS クラウド同期
+   - 同期対象: qrecords / frrecords / pprrecords / qmaster
+   - キーは内容ベース(_k)なので、端末をまたいでも同一行は同一キーになる
+     → どの端末で・どの順に取り込んでも、同期後は完全に同じ状態に収束する
+   - GASのレスポンス上限があるため、送信も受信もチャンク分割する
+   ========================================================= */
+const SYNC_STORES=[
+  {store:QSTORE, sheet:'qrecords',   key:'_k'},
+  {store:RSTORE, sheet:'frrecords',  key:'_k'},
+  {store:PSTORE, sheet:'pprrecords', key:'_k'},
+  {store:MSTORE, sheet:'qmaster',    key:'id'},
+];
+const CHUNK=400;   // 1リクエストあたりの件数（GASの実行時間/サイズ上限に収める）
+
+function syncLog(msg,cls){
+  const L=$('#syncLog');
+  if(!L) return;
+  const d=el('div',cls||'',msg);
+  d.style.cssText='padding:2px 0;'+(cls==='er'?'color:#b91c1c':cls==='ok'?'color:#065f46':'color:#6b7a90');
+  L.prepend(d);
+}
+function gasUrl(){
+  const u=($('#gasUrl').value||'').trim();
+  if(!u) throw new Error('GASのURLを入力してください');
+  if(!/^https:\/\/script\.google\.com\/.*\/exec$/.test(u))
+    throw new Error('URLが不正です（/exec で終わるウェブアプリURLを指定）');
+  return u;
+}
+/* GASはCORSプリフライトを返せないため、text/plain で送る（プリフライト回避） */
+async function gasCall(url, payload){
+  const res=await fetch(url,{
+    method:'POST',
+    headers:{'Content-Type':'text/plain;charset=utf-8'},
+    body:JSON.stringify(payload),
+    redirect:'follow',
+  });
+  if(!res.ok) throw new Error('HTTP '+res.status);
+  const txt=await res.text();
+  let j;
+  try{ j=JSON.parse(txt); }
+  catch(e){ throw new Error('応答がJSONではありません（URL・アクセス権限を確認）'); }
+  if(j.error) throw new Error('GAS: '+j.error);
+  return j;
+}
+function readStore(name){
+  return new Promise(res=>{
+    if(!db.objectStoreNames.contains(name)) return res([]);
+    const out=[]; const r=db.transaction(name,'readonly').objectStore(name).openCursor();
+    r.onsuccess=e=>{const c=e.target.result;if(c){out.push(c.value);c.continue();}else res(out);};
+    r.onerror=()=>res([]);
+  });
+}
+function writeStore(name,recs){
+  return new Promise(res=>{
+    if(!recs.length || !db.objectStoreNames.contains(name)) return res(0);
+    const os=db.transaction(name,'readwrite').objectStore(name);
+    let done=0;
+    recs.forEach(r=>{ const q=os.put(r); q.onsuccess=q.onerror=()=>{ if(++done===recs.length) res(recs.length); }; });
+  });
+}
+
+async function gasPush(){
+  const url=gasUrl();
+  const btn=$('#btnPush'); btn.disabled=true;
+  try{
+    let total=0;
+    for(const S of SYNC_STORES){
+      const recs=await readStore(S.store);
+      if(!recs.length) continue;
+      // チャンク送信。最初のチャンクで mode:'replace' にせず、常に upsert（他端末のデータを消さない）
+      for(let i=0;i<recs.length;i+=CHUNK){
+        const part=recs.slice(i,i+CHUNK);
+        await gasCall(url,{action:'push', sheet:S.sheet, key:S.key, rows:part});
+        total+=part.length;
+        syncLog('↑ '+S.sheet+' '+Math.min(i+CHUNK,recs.length)+'/'+recs.length,'dim');
+      }
+    }
+    syncLog('✓ アップロード完了：'+fmtI(total)+'件','ok');
+    toast('アップロード完了');
+  }catch(e){ syncLog('✕ '+e.message,'er'); toast('アップロード失敗'); }
+  btn.disabled=false;
+}
+
+async function gasPull(){
+  const url=gasUrl();
+  const btn=$('#btnPull'); btn.disabled=true;
+  try{
+    let total=0;
+    for(const S of SYNC_STORES){
+      let offset=0;
+      for(;;){
+        const j=await gasCall(url,{action:'pull', sheet:S.sheet, offset, limit:CHUNK});
+        const rows=j.rows||[];
+        if(rows.length){
+          await writeStore(S.store, rows);
+          total+=rows.length;
+          syncLog('↓ '+S.sheet+' '+(offset+rows.length)+(j.total?('/'+j.total):''),'dim');
+        }
+        offset+=rows.length;
+        if(rows.length<CHUNK) break;      // 最後のページ
+        if(offset>200000) break;          // 安全弁
+      }
+    }
+    await loadMaster();
+    await reloadFR();
+    await reloadPPR();
+    await refreshState();
+    syncLog('✓ ダウンロード完了：'+fmtI(total)+'件（既存と同一キーは上書き）','ok');
+    toast('ダウンロード完了');
+  }catch(e){ syncLog('✕ '+e.message,'er'); toast('ダウンロード失敗'); }
+  btn.disabled=false;
+}
+
+/* GAS側に貼るコードを表示 */
+const GAS_CODE=`/**
+ * HFO1 品質生産性ツール — 同期用GAS
+ * 1. スプレッドシートを新規作成し、拡張機能 > Apps Script を開く
+ * 2. このコードを貼り付けて保存
+ * 3. デプロイ > 新しいデプロイ > 種類「ウェブアプリ」
+ *      次のユーザーとして実行: 自分
+ *      アクセスできるユーザー: 全員        ← 社内のみで使う場合も「全員」にしないとfetchできません
+ * 4. 発行された /exec のURLをツールに貼る
+ */
+const SS = SpreadsheetApp.getActiveSpreadsheet();
+
+function doPost(e){
+  try{
+    const req = JSON.parse(e.postData.contents);
+    if(req.action === 'push') return json(push_(req));
+    if(req.action === 'pull') return json(pull_(req));
+    return json({error:'unknown action'});
+  }catch(err){
+    return json({error:String(err)});
+  }
+}
+function json(o){
+  return ContentService.createTextOutput(JSON.stringify(o))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+function sheet_(name){
+  let sh = SS.getSheetByName(name);
+  if(!sh) sh = SS.insertSheet(name);
+  return sh;
+}
+
+/** rows を key 列で upsert。全レコードは1セルにJSONで保持し、A列にキーを置く。
+ *  列数の違う雑多なレコードを扱うため、スキーマ非依存のJSON保存とする。 */
+function push_(req){
+  const sh = sheet_(req.sheet);
+  const key = req.key || '_k';
+  const rows = req.rows || [];
+  const last = sh.getLastRow();
+  const idx = {};
+  if(last > 0){
+    const keys = sh.getRange(1,1,last,1).getValues();
+    for(let i=0;i<keys.length;i++) idx[String(keys[i][0])] = i+1;   // 1-based row
+  }
+  const appends = [];
+  rows.forEach(function(r){
+    const k = String(r[key]);
+    const payload = JSON.stringify(r);
+    const at = idx[k];
+    if(at){
+      sh.getRange(at,2).setValue(payload);      // 既存 → 上書き
+    }else{
+      appends.push([k, payload]);
+      idx[k] = -1;                              // 同一バッチ内の重複を防ぐ
+    }
+  });
+  if(appends.length){
+    sh.getRange(sh.getLastRow()+1, 1, appends.length, 2).setValues(appends);
+  }
+  return {ok:true, upserted: rows.length, total: sh.getLastRow()};
+}
+
+function pull_(req){
+  const sh = SS.getSheetByName(req.sheet);
+  if(!sh) return {rows:[], total:0};
+  const total = sh.getLastRow();
+  const offset = req.offset || 0;
+  const limit = req.limit || 400;
+  if(offset >= total) return {rows:[], total:total};
+  const n = Math.min(limit, total - offset);
+  const vals = sh.getRange(offset+1, 2, n, 1).getValues();
+  const rows = [];
+  vals.forEach(function(v){
+    if(!v[0]) return;
+    try{ rows.push(JSON.parse(v[0])); }catch(err){}
+  });
+  return {rows:rows, total:total};
+}
+`;
+
+function showGasCode(){
+  const m=$('#mask'); if(!m) return;
+  const box=$('#masterBox')||m.firstElementChild;
+  // 汎用モーダルが無い場合は新しいウィンドウで表示
+  const w=window.open('','_blank');
+  if(!w){ alert('ポップアップがブロックされました'); return; }
+  w.document.write('<html><head><meta charset="utf-8"><title>GAS コード</title></head><body style="margin:0;background:#0d1117">'
+    +'<div style="padding:12px 16px;background:#161b22;color:#e6edf3;font-family:sans-serif;font-size:14px">'
+    +'このコードを Apps Script に貼り付けてください（下のコードを全選択してコピー）</div>'
+    +'<pre style="margin:0;padding:16px;color:#c9d1d9;background:#0d1117;font-size:12.5px;line-height:1.6;white-space:pre-wrap">'
+    + GAS_CODE.replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    +'</pre></body></html>');
+  w.document.close();
+}
 
 /* =========================================================
    [新] 長いリストを上位N件だけ表示し、残りは任意で展開する
@@ -2291,6 +2533,14 @@ async function init(){
   if($('#detModal')) $('#detModal').addEventListener('click',e=>{ if(e.target.id==='detModal') $('#detModal').classList.remove('on'); });
   if($('#detPrint')) $('#detPrint').onclick=()=>window.print();
   $('#btnSample').onclick=()=>{ $('#mText').value='永田 大作,nagatdai,日勤,○\n成松 みよ,narimatmy,夜勤,\n北里 直樹,kitasnao,日勤,○'; $('#mask').classList.add('on'); };
+  // --- GAS同期 ---
+  const gu=$('#gasUrl');
+  try{ gu.value=localStorage.getItem('hfo1_gas_url')||''; }catch(e){}
+  gu.onchange=()=>{ try{ localStorage.setItem('hfo1_gas_url', gu.value.trim()); }catch(e){} };
+  $('#btnPush').onclick=gasPush;
+  $('#btnPull').onclick=gasPull;
+  $('#btnGasCode').onclick=showGasCode;
+
   $('#btnClearProd').onclick=async()=>{ if(!confirm('生産性データをクリアしますか？（PPRはメモリ、FR(作業者別)は保存済みデータも消えます）')) return; S.ppr=[];S.fr=[];S.prodFiles=[]; await clearFR(); await clearPPR(); await refreshState(); toast('生産性データをクリアしました'); };
   $('#btnClearQual').onclick=async()=>{ if(!confirm('品質データ(IndexedDB)を全消去しますか？この操作は取り消せません。')) return; await clearQual(); await refreshState(); QReport=null; toast('品質データをクリアしました'); };
 }
