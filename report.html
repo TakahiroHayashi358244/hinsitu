@@ -51,7 +51,7 @@ a.back{color:var(--accent);text-decoration:none;font-size:13px}
 <body>
 <div class="wrap">
   <h1>HFO1 品質・生産性 資料出力</h1>
-  <div class="sub">ダッシュボードと同じデータ（ブラウザ内 IndexedDB）を自動で読み込みます。項目を選んで PowerPoint を生成します。　<a class="back" href="./index.html">← ダッシュボードに戻る</a></div>
+  <div class="sub">ダッシュボードと同じデータ（ブラウザ内 IndexedDB）を自動で読み込みます。項目を選んで PowerPoint を生成します。　<a class="back" href="./index.html">← ダッシュボードに戻る</a>　<span style="color:#0f9d8f;font-weight:700">v2（フォント修正済み）</span></div>
 
   <div class="card">
     <div class="chead">1. 対象データ</div>
@@ -118,7 +118,8 @@ const log=m=>{$('#log').textContent=m;};
 
 /* ---- 配色（社内資料の既存フォーマットに合わせる） ---- */
 const HDR='4472C4';       // 表ヘッダー（Excel風）
-const FONT='MS PGothic';   // ★内部フォント名はASCII表記が必須。'MS Pゴシック'だとPowerPointが解決できず文字化けする
+const FONT='Yu Gothic';   // ★ASCII表記必須。日本語名('MS Pゴシック')はPowerPointが解決できず文字化けする。
+                          //   pptxgenjsは latin/ea/cs すべてに同じ名前を書くため、Latin名としても有効な名前を使う。
 const C_Q='7A4FA3', C_P='0F9D8F', C_INK='1F2D3D', C_MUT='6B7A90', C_BAD='C0392B';
 
 /* ---- IndexedDB（ダッシュボードと同じ定義） ---- */
