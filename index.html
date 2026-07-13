@@ -193,7 +193,7 @@ tr.out td{color:var(--mut);font-style:italic}
   <div class="top">
     <div>
       <div class="title">HFO1 品質×生産性 統合ダッシュボード</div>
-      <div class="sub">DPMO（品質）と UPH（生産性）を1つのツールで。CSV / ZIP をドラッグ&ドロップ、ヘッダーで自動判別。<b>v28</b>：各リストは上位5件を常時表示し、残りはボタンで展開。</div>
+      <div class="sub">DPMO（品質）と UPH（生産性）を1つのツールで。CSV / ZIP をドラッグ&ドロップ、ヘッダーで自動判別。<b>v29</b>：PPRを永続化。「PowerPoint出力」から資料作成ページへ（同一データを自動読込）。</div>
     </div>
     <div class="badges" id="statusBadges"></div>
   </div>
@@ -419,7 +419,7 @@ function dateFromName(name){
 /* =========================================================
    IndexedDB: hfo1_ops (品質のみ永続化)
    ========================================================= */
-const DB_NAME='hfo1_ops', QSTORE='qrecords', MSTORE='qmaster', FSTORE='qfiles', RSTORE='frrecords', DB_VER=3;
+const DB_NAME='hfo1_ops', QSTORE='qrecords', MSTORE='qmaster', FSTORE='qfiles', RSTORE='frrecords', PSTORE='pprrecords', DB_VER=4;
 function openDB(){
   return new Promise((res,rej)=>{
     const rq=indexedDB.open(DB_NAME,DB_VER);
@@ -432,6 +432,7 @@ function openDB(){
       if(!d.objectStoreNames.contains(MSTORE)) d.createObjectStore(MSTORE,{keyPath:'id',autoIncrement:true});
       if(!d.objectStoreNames.contains(FSTORE)) d.createObjectStore(FSTORE,{keyPath:'name'});
       if(!d.objectStoreNames.contains(RSTORE)) d.createObjectStore(RSTORE,{keyPath:'_k'});
+      if(!d.objectStoreNames.contains(PSTORE)) d.createObjectStore(PSTORE,{keyPath:'_k'});
     };
     rq.onsuccess=e=>{db=e.target.result;res(db);};
     rq.onerror=e=>rej(e);
@@ -466,6 +467,19 @@ function loadMaster(){
 }
 function saveMasterRow(row){ return new Promise(res=>{const r=db.transaction(MSTORE,'readwrite').objectStore(MSTORE).put(row);r.onsuccess=()=>res(r.result);}); }
 function clearMaster(){ return new Promise(res=>{const r=db.transaction(MSTORE,'readwrite').objectStore(MSTORE).clear();r.onsuccess=()=>res();}); }
+/* ---------- PPR(工程別生産性) 永続化 ---------- */
+function ptx(mode){ return db.transaction(PSTORE,mode).objectStore(PSTORE); }
+function putPPR(recs){
+  return new Promise(res=>{
+    if(!recs.length){res(0);return;}
+    const os=ptx('readwrite'); let done=0;
+    recs.forEach(r=>{ const q=os.put(r); q.onsuccess=q.onerror=()=>{ if(++done===recs.length) res(recs.length); }; });
+  });
+}
+function getAllPPR(){ return new Promise(res=>{const out=[];const r=ptx('readonly').openCursor();
+  r.onsuccess=e=>{const c=e.target.result;if(c){out.push(c.value);c.continue();}else res(out);};r.onerror=()=>res([]);}); }
+function clearPPR(){ return new Promise(res=>{const r=ptx('readwrite').clear();r.onsuccess=()=>res();r.onerror=()=>res();}); }
+
 /* ---------- FR(作業者別生産性) 永続化 ---------- */
 function rtx(mode){ return db.transaction(RSTORE,mode).objectStore(RSTORE); }
 function putFR(recs){
@@ -565,7 +579,8 @@ function ingestProd(type, headers, rows, name){
       const vol=parseFloat(row[idx['Actual Volume']])||0;
       const hrs=parseFloat(row[idx['Actual Hours']])||0;
       if(hrs<=0) continue;
-      S.ppr.push({date,dateISO:iso||date,cp,vol,hrs,scope}); added++;
+      const _rec={_k:(iso||date)+'|'+cp+'|'+scope, date,dateISO:iso||date,cp,vol,hrs,scope};
+      S.ppr.push(_rec); pprPending.push(_rec); added++;
     }
     const stag=scope==='day'?'日別':'月間';
     S.prodFiles.push({name,type:`工程別(${stag})`,date,rows:added});
@@ -603,6 +618,7 @@ function ingestProd(type, headers, rows, name){
   }
 }
 let frPending=[];   // 取込中のFRレコードを溜めてまとめて永続化
+let pprPending=[];  // 取込中のPPRレコード
 
 /* ---------- ZIP(再帰・二重zip) ---------- */
 async function readZip(buf){
@@ -657,6 +673,12 @@ async function handleFiles(fileList){
       else logLine('対象外: '+file.name,'wn');
     }catch(err){ logLine('✕ '+file.name+'：'+err.message,'er'); }
   }
+  // PPRを永続化
+  if(pprPending.length){
+    await putPPR(pprPending);
+    logLine('　PPR: '+pprPending.length+'行を保存（次回起動時も保持されます）','dim');
+    pprPending=[];
+  }
   // FRを永続化してから再ロード
   if(frPending.length){
     let add=0,upd=0;
@@ -669,10 +691,12 @@ async function handleFiles(fileList){
     if(upd) logLine('　FR: '+add+'件新規 / '+upd+'件更新(同一日・同一者を上書き)','dim');
   }
   await reloadFR();
+  await reloadPPR();
   await refreshState();
   toast('取り込み完了');
 }
 async function reloadFR(){ if(db) S.fr=await getAllFR(); }
+async function reloadPPR(){ if(db) S.ppr=await getAllPPR(); }
 
 /* =========================================================
    状態バッジ / ボタン活性
@@ -1440,8 +1464,18 @@ function buildDash(){
   const goWrap=el('div'); const go=el('button','btn pri','品質を再計算'); go.onclick=()=>recalcQuality(); goWrap.appendChild(go);
   const periodWrap=el('div','periodinfo'); periodWrap.id='qPeriodInfo'; periodWrap.style.cssText='display:flex;flex-direction:column;justify-content:center;font-size:12px;color:#5a6b86;padding-left:4px';
   const sp=el('div','spacer');
+  const pptWrap=el('div');
+  const ppt=el('button','btn pri','PowerPoint出力');
+  ppt.title='別ページで資料を作成します（同じデータを自動で読み込みます）';
+  ppt.onclick=()=>{
+    const site=$('#qSite')?$('#qSite').value:'';
+    const f=$('#qFrom')?$('#qFrom').value:'', t=$('#qTo')?$('#qTo').value:'';
+    const q=new URLSearchParams({site,from:f,to:t}).toString();
+    window.open('./report.html?'+q, '_blank');
+  };
+  pptWrap.appendChild(ppt);
   const backWrap=el('div'); const back=el('button','btn gho','取込に戻る'); back.onclick=()=>{ d.style.display='none'; $('#ingest').style.display='block'; }; backWrap.appendChild(back);
-  fb.appendChild(siteWrap); fb.appendChild(fWrap); fb.appendChild(tWrap); fb.appendChild(goWrap); fb.appendChild(periodWrap); fb.appendChild(sp); fb.appendChild(backWrap);
+  fb.appendChild(siteWrap); fb.appendChild(fWrap); fb.appendChild(tWrap); fb.appendChild(goWrap); fb.appendChild(periodWrap); fb.appendChild(sp); fb.appendChild(pptWrap); fb.appendChild(backWrap);
   d.appendChild(fb);
 
   // タブ
@@ -2238,6 +2272,7 @@ async function init(){
   await openDB();
   await loadMaster();
   await reloadFR();
+  await reloadPPR();
   await refreshState();
 
   const file=$('#file'), drop=$('#drop');
@@ -2255,7 +2290,7 @@ async function init(){
   if($('#detModal')) $('#detModal').addEventListener('click',e=>{ if(e.target.id==='detModal') $('#detModal').classList.remove('on'); });
   if($('#detPrint')) $('#detPrint').onclick=()=>window.print();
   $('#btnSample').onclick=()=>{ $('#mText').value='永田 大作,nagatdai,日勤,○\n成松 みよ,narimatmy,夜勤,\n北里 直樹,kitasnao,日勤,○'; $('#mask').classList.add('on'); };
-  $('#btnClearProd').onclick=async()=>{ if(!confirm('生産性データをクリアしますか？（PPRはメモリ、FR(作業者別)は保存済みデータも消えます）')) return; S.ppr=[];S.fr=[];S.prodFiles=[]; await clearFR(); await refreshState(); toast('生産性データをクリアしました'); };
+  $('#btnClearProd').onclick=async()=>{ if(!confirm('生産性データをクリアしますか？（PPRはメモリ、FR(作業者別)は保存済みデータも消えます）')) return; S.ppr=[];S.fr=[];S.prodFiles=[]; await clearFR(); await clearPPR(); await refreshState(); toast('生産性データをクリアしました'); };
   $('#btnClearQual').onclick=async()=>{ if(!confirm('品質データ(IndexedDB)を全消去しますか？この操作は取り消せません。')) return; await clearQual(); await refreshState(); QReport=null; toast('品質データをクリアしました'); };
 }
 init();
