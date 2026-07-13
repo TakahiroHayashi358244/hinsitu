@@ -226,6 +226,7 @@ tr.out td{color:var(--mut);font-style:italic}
             <input type="text" id="gasUrl" placeholder="https://script.google.com/macros/s/AKfyc.../exec"
               style="width:100%;padding:8px 10px;border:1px solid #cfd8e6;border-radius:8px;font-size:12.5px">
           </div>
+          <button class="btn" id="btnTest">接続テスト</button>
           <button class="btn" id="btnPush">↑ アップロード</button>
           <button class="btn" id="btnPull">↓ ダウンロード</button>
           <button class="btn gho" id="btnGasCode">GASコードを表示</button>
@@ -464,16 +465,35 @@ function openDB(){
   });
 }
 function qtx(mode){ return db.transaction(QSTORE,mode).objectStore(QSTORE); }
+/* ★既存キーを一度だけ getAllKeys() でまとめて取得し、以降はメモリ上で重複判定する。
+   旧実装は1件ごとに get()→add() の2往復をしていたため、件数が増えると急激に遅くなっていた。
+   （1年分14,000件で約2.8万オペ → 半減し、getのラウンドトリップも消える） */
 function putMany(records){
   return new Promise((res)=>{
     if(!records.length){res({added:0,dup:0});return;}
-    const os=qtx('readwrite'); let added=0,dup=0,done=0;
-    const next=()=>{ if(++done===records.length) res({added,dup}); };
-    records.forEach(rec=>{
-      const g=os.get(rec._k);
-      g.onsuccess=()=>{ if(g.result){dup++;next();} else { const p=os.add(rec); p.onsuccess=()=>{added++;next();}; p.onerror=()=>{dup++;next();}; } };
-      g.onerror=()=>{ dup++; next(); };
-    });
+    const ro=qtx('readonly');
+    const kq=ro.getAllKeys();
+    kq.onerror=()=>res({added:0,dup:0});
+    kq.onsuccess=()=>{
+      const have=new Set(kq.result.map(String));
+      const fresh=[];
+      let dup=0;
+      for(const rec of records){
+        const k=String(rec._k);
+        if(have.has(k)){ dup++; continue; }
+        have.add(k);          // 同一バッチ内の重複も弾く
+        fresh.push(rec);
+      }
+      if(!fresh.length){ res({added:0,dup}); return; }
+      const os=qtx('readwrite');
+      let done=0, added=0;
+      const next=()=>{ if(++done===fresh.length) res({added,dup}); };
+      fresh.forEach(rec=>{
+        const p=os.put(rec);   // putなら存在チェック不要
+        p.onsuccess=()=>{ added++; next(); };
+        p.onerror=()=>{ dup++; next(); };
+      });
+    };
   });
 }
 function getByDataset(dsId){
@@ -988,26 +1008,37 @@ function syncLog(msg,cls){
   L.prepend(d);
 }
 function gasUrl(){
-  const u=($('#gasUrl').value||'').trim();
+  let u=($('#gasUrl').value||'').trim().replace(/[\s\u3000]+$/,'');
   if(!u) throw new Error('GASのURLを入力してください');
-  if(!/^https:\/\/script\.google\.com\/.*\/exec$/.test(u))
-    throw new Error('URLが不正です（/exec で終わるウェブアプリURLを指定）');
+  if(!/^https:\/\/script\.google\.com\//.test(u))
+    throw new Error('URLが不正です。script.google.com のウェブアプリURL（/exec）を貼ってください。現在の値: '+u.slice(0,60));
+  if(!/\/exec(\?|$)/.test(u))
+    throw new Error('URLの末尾が /exec ではありません。「デプロイ > ウェブアプリ」のURLを使ってください（/dev ではなく /exec）。現在の値: '+u.slice(0,60));
   return u;
 }
 /* GASはCORSプリフライトを返せないため、text/plain で送る（プリフライト回避） */
 async function gasCall(url, payload){
-  const res=await fetch(url,{
-    method:'POST',
-    headers:{'Content-Type':'text/plain;charset=utf-8'},
-    body:JSON.stringify(payload),
-    redirect:'follow',
-  });
-  if(!res.ok) throw new Error('HTTP '+res.status);
+  let res;
+  try{
+    res=await fetch(url,{
+      method:'POST',
+      headers:{'Content-Type':'text/plain;charset=utf-8'},  // プリフライト回避
+      body:JSON.stringify(payload),
+      redirect:'follow',
+    });
+  }catch(e){
+    throw new Error('通信できません（CORS/ネットワーク）。デプロイ設定の「アクセスできるユーザー」を必ず【全員】にしてください。詳細: '+e.message);
+  }
   const txt=await res.text();
+  if(!res.ok) throw new Error('HTTP '+res.status+' — '+txt.slice(0,120));
   let j;
   try{ j=JSON.parse(txt); }
-  catch(e){ throw new Error('応答がJSONではありません（URL・アクセス権限を確認）'); }
-  if(j.error) throw new Error('GAS: '+j.error);
+  catch(e){
+    if(/<html|<!DOCTYPE|ログイン|Sign in|Google アカウント/i.test(txt))
+      throw new Error('GASがログイン画面を返しました。デプロイの「アクセスできるユーザー」を【全員】にして、再デプロイしてください。');
+    throw new Error('応答がJSONではありません: '+txt.slice(0,120));
+  }
+  if(j.error) throw new Error('GAS側エラー: '+j.error);
   return j;
 }
 function readStore(name){
@@ -1027,10 +1058,37 @@ function writeStore(name,recs){
   });
 }
 
+async function gasTest(){
+  const btn=$('#btnTest'); btn.disabled=true;
+  $('#syncLog').innerHTML='';
+  try{
+    const url=gasUrl();
+    syncLog('接続テスト中… '+url.slice(0,50)+'…','dim');
+    // doGet で疎通確認（GETはCORSが緩く、原因の切り分けがしやすい）
+    const res=await fetch(url,{method:'GET',redirect:'follow'});
+    const txt=await res.text();
+    let j=null;
+    try{ j=JSON.parse(txt); }catch(e){}
+    if(!j){
+      if(/<html|<!DOCTYPE|Sign in|ログイン/i.test(txt))
+        throw new Error('ログイン画面が返りました → デプロイの「アクセスできるユーザー」を【全員】にして再デプロイしてください');
+      throw new Error('JSONが返りません: '+txt.slice(0,100));
+    }
+    if(j.error) throw new Error('GAS側エラー: '+j.error);
+    syncLog('✓ 接続OK。シート: '+((j.sheets||[]).map(x=>x.name+'('+x.rows+'行)').join(', ')||'なし'),'ok');
+    syncLog('　→ アップロード/ダウンロードが使えます','dim');
+  }catch(e){
+    syncLog('✕ '+e.message,'er');
+    syncLog('　確認: ①URLは /exec で終わるか ②デプロイのアクセス権は「全員」か ③コード変更後に【新しいデプロイ】をしたか','dim');
+  }
+  btn.disabled=false;
+}
+
 async function gasPush(){
-  const url=gasUrl();
   const btn=$('#btnPush'); btn.disabled=true;
   try{
+    const url=gasUrl();          // ★try内に置く。外だと例外が捕まらず「無反応」に見える
+    syncLog('アップロード開始…','dim');
     let total=0;
     for(const S of SYNC_STORES){
       const recs=await readStore(S.store);
@@ -1050,9 +1108,10 @@ async function gasPush(){
 }
 
 async function gasPull(){
-  const url=gasUrl();
   const btn=$('#btnPull'); btn.disabled=true;
   try{
+    const url=gasUrl();          // ★try内に置く
+    syncLog('ダウンロード開始…','dim');
     let total=0;
     for(const S of SYNC_STORES){
       let offset=0;
@@ -1101,6 +1160,19 @@ function doPost(e){
     return json({error:String(err)});
   }
 }
+/** ブラウザでこのURLを直接開くと {"ok":true,...} が出れば疎通OK。
+ *  ログイン画面やエラーが出る場合はデプロイ設定（アクセス:全員）を見直す。 */
+function doGet(e){
+  const p = (e && e.parameter) || {};
+  if(p.action === 'pull'){
+    return json(pull_({sheet:p.sheet, offset:Number(p.offset||0), limit:Number(p.limit||400)}));
+  }
+  const sheets = SS.getSheets().map(function(sh){
+    return {name: sh.getName(), rows: sh.getLastRow()};
+  });
+  return json({ok:true, msg:'GAS接続OK', sheets:sheets});
+}
+
 function json(o){
   return ContentService.createTextOutput(JSON.stringify(o))
     .setMimeType(ContentService.MimeType.JSON);
@@ -2536,7 +2608,9 @@ async function init(){
   // --- GAS同期 ---
   const gu=$('#gasUrl');
   try{ gu.value=localStorage.getItem('hfo1_gas_url')||''; }catch(e){}
-  gu.onchange=()=>{ try{ localStorage.setItem('hfo1_gas_url', gu.value.trim()); }catch(e){} };
+  const saveUrl=()=>{ try{ localStorage.setItem('hfo1_gas_url', gu.value.trim()); }catch(e){} };
+  gu.onchange=saveUrl; gu.oninput=saveUrl;
+  $('#btnTest').onclick=gasTest;
   $('#btnPush').onclick=gasPush;
   $('#btnPull').onclick=gasPull;
   $('#btnGasCode').onclick=showGasCode;
