@@ -118,7 +118,7 @@ const log=m=>{$('#log').textContent=m;};
 
 /* ---- 配色（社内資料の既存フォーマットに合わせる） ---- */
 const HDR='4472C4';       // 表ヘッダー（Excel風）
-const FONT='MS Pゴシック';
+const FONT='MS PGothic';   // ★内部フォント名はASCII表記が必須。'MS Pゴシック'だとPowerPointが解決できず文字化けする
 const C_Q='7A4FA3', C_P='0F9D8F', C_INK='1F2D3D', C_MUT='6B7A90', C_BAD='C0392B';
 
 /* ---- IndexedDB（ダッシュボードと同じ定義） ---- */
@@ -398,6 +398,7 @@ async function generate(){
     ],{x:0.45,y:1.3,w:9.1,h:4.0,showLegend:true,legendPos:'b',
        chartColors:[C_Q,'C47F17','2F855A'],lineSize:2,
        catAxisLabelFontSize:9,valAxisLabelFontSize:9,valAxisTitle:'DPMO',showValAxisTitle:true,
+       catAxisLabelFontFace:FONT,valAxisLabelFontFace:FONT,valAxisTitleFontFace:FONT,legendFontFace:FONT,titleFontFace:FONT,
        catAxisLabelRotate:45});
   }
 
@@ -416,6 +417,7 @@ async function generate(){
       {x:0.45,y:1.3,w:9.1,h:4.0,showLegend:true,legendPos:'b',
        chartColors:COL,lineSize:2,
        catAxisLabelFontSize:9,valAxisLabelFontSize:9,valAxisTitle:'UPH (u/h)',showValAxisTitle:true,
+       catAxisLabelFontFace:FONT,valAxisLabelFontFace:FONT,valAxisTitleFontFace:FONT,legendFontFace:FONT,titleFontFace:FONT,
        catAxisLabelRotate:45});
   }
 
