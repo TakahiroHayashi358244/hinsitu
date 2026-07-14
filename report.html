@@ -46,12 +46,63 @@ input[type=date],select,input[type=text]{padding:6px 9px;border:1px solid #cfd8e
       border-top:1px solid var(--line);padding:12px 0;margin-top:8px}
 #log{font-size:12px;color:var(--mut);margin-top:8px;white-space:pre-line}
 a.back{color:var(--accent);text-decoration:none;font-size:13px}
+
+/* ===== スライドプレビュー ===== */
+#pvWrap{display:none;position:fixed;inset:0;background:#5b6470;z-index:9999;overflow:auto}
+#pvBar{position:sticky;top:0;z-index:2;background:#2b3442;color:#fff;padding:10px 16px;
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+#pvBar .t{font-weight:700;font-size:14px}
+#pvBar .hint{font-size:12px;color:#c3ccd8}
+#pvBar button{border:1px solid #56637a;background:#3a4557;color:#fff;border-radius:8px;
+  padding:7px 14px;font-size:13px;cursor:pointer;font-weight:600}
+#pvBar button:hover{background:#48546a}
+#pvBar button.pri{background:#2f6feb;border-color:#2f6feb}
+#pvPages{padding:22px 16px 60px;display:flex;flex-direction:column;align-items:center;gap:20px}
+/* 16:9 スライド */
+.slide{width:1000px;height:562px;background:#fff;border-radius:6px;position:relative;
+  box-shadow:0 6px 24px rgba(0,0,0,.28);overflow:hidden;flex:none;
+  font-family:"Yu Gothic","Hiragino Kaku Gothic ProN",Meiryo,sans-serif;color:#1F2D3D}
+.slide .sh{position:absolute;left:45px;right:45px;top:32px}
+.slide .st{font-size:26px;font-weight:800;letter-spacing:.01em}
+.slide .ss{font-size:12.5px;color:#6B7A90;margin-top:5px}
+.slide .rule{position:absolute;left:45px;right:45px;top:100px;height:2px;background:#4472C4}
+.slide .body{position:absolute;left:45px;right:45px;top:120px;bottom:34px}
+.slide table{border-collapse:collapse;width:100%;font-size:13px}
+.slide th{background:#4472C4;color:#fff;font-weight:700;padding:7px 9px;text-align:center;border:1px solid #BFBFBF}
+.slide td{padding:6px 9px;border:1px solid #BFBFBF;text-align:right}
+.slide td:first-child{text-align:left}
+.slide tr:nth-child(even) td{background:#F5F8FD}
+.kcards{display:flex;gap:16px;margin-bottom:16px}
+.kcard{flex:1;border:1px solid #D6DEEA;background:#F7F9FC;border-radius:10px;padding:12px 14px}
+.kcard .l{font-size:12px;color:#6B7A90}
+.kcard .v{font-size:32px;font-weight:800;margin-top:3px}
+.slide .warnbox{border:1px solid #FDBA74;background:#FFF7ED;color:#9A3412;
+  border-radius:8px;padding:11px 13px;font-size:13px;line-height:1.7;margin-bottom:14px}
+.slide .note{font-size:11.5px;color:#6B7A90;margin-top:10px;line-height:1.6}
+.cover{background:#4472C4;color:#fff}
+.cover .ct{position:absolute;left:60px;top:150px;font-size:40px;font-weight:800}
+.cover .cp{position:absolute;left:60px;top:230px;font-size:19px;color:#DCE6F7}
+.cover .cs{position:absolute;left:60px;top:268px;font-size:15px;color:#BDD0F0}
+.cover .cd{position:absolute;left:60px;bottom:44px;font-size:12px;color:#A8BFE6}
+.pnum{position:absolute;right:20px;bottom:12px;font-size:11px;color:#9AA6B6}
+
+/* ===== 印刷（PDF保存） ===== */
+@page{size:A4 landscape;margin:0}
+@media print{
+  body>.wrap{display:none!important}
+  #pvWrap{position:static;display:block!important;background:#fff;overflow:visible}
+  #pvBar{display:none!important}
+  #pvPages{padding:0;gap:0;display:block}
+  .slide{width:100%;height:100vh;box-shadow:none;border-radius:0;
+    page-break-after:always;break-after:page;margin:0}
+  .slide:last-child{page-break-after:auto;break-after:auto}
+}
 </style>
 </head>
 <body>
 <div class="wrap">
   <h1>HFO1 品質・生産性 資料出力</h1>
-  <div class="sub">ダッシュボードと同じデータ（ブラウザ内 IndexedDB）を自動で読み込みます。項目を選んで PowerPoint を生成します。　<a class="back" href="./index.html">← ダッシュボードに戻る</a>　<span style="color:#0f9d8f;font-weight:700">v2（フォント修正済み）</span></div>
+  <div class="sub">ダッシュボードと同じデータ（ブラウザ内 IndexedDB）を自動で読み込みます。項目を選んで PowerPoint を生成します。　<a class="back" href="./index.html">← ダッシュボードに戻る</a>　<span style="color:#0f9d8f;font-weight:700">v3（プレビュー / PDF保存 対応）</span></div>
 
   <div class="card">
     <div class="chead">1. 対象データ</div>
@@ -94,11 +145,24 @@ a.back{color:var(--accent);text-decoration:none;font-size:13px}
         </div>
       </div>
       <div class="foot">
-        <button class="btn pri" id="gen" disabled>PowerPointを生成</button>
+        <button class="btn pri" id="preview" disabled>プレビュー（画面で見る / PDF保存）</button>
+        <button class="btn" id="gen" disabled>PowerPointを生成</button>
         <span id="log"></span>
       </div>
     </div>
   </div>
+</div>
+
+<div id="pvWrap">
+  <div id="pvBar">
+    <span class="t">スライドプレビュー</span>
+    <span id="pvCount" class="hint"></span>
+    <span style="flex:1"></span>
+    <span class="hint">PDFにするには「PDFで保存」→ 送信先を「PDFに保存」</span>
+    <button class="pri" id="pvPrint">PDFで保存 / 印刷</button>
+    <button id="pvClose">閉じる</button>
+  </div>
+  <div id="pvPages"></div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
@@ -277,6 +341,7 @@ function renderItems(){
     host.appendChild(d);
   });
   $('#gen').disabled=!R||!sel.size;
+  $('#preview').disabled=!R||!sel.size;
 }
 
 function renderSummary(){
@@ -312,6 +377,247 @@ async function recompute(){
   const site=$('#site').value, from=$('#from').value, to=$('#to').value;
   R=compute(site,from,to);
   renderSummary(); renderItems();
+}
+
+
+/* =========================================================
+   スライドプレビュー（画面表示 → Ctrl+P で PDF 保存）
+   PowerPointが無い端末でも中身が見られる。数値は generate() と同じ R から描く。
+   ========================================================= */
+const PV_Q='#7A4FA3', PV_P='#0F9D8F', PV_MUT='#6B7A90', PV_BAD='#C0392B';
+const PV_SERIES=['#0F9D8F','#4472C4','#C47F17','#7A4FA3'];
+
+function pvEl(t,c,x){const e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e;}
+function pvSlide(title,sub){
+  const s=pvEl('div','slide');
+  const sh=pvEl('div','sh');
+  sh.appendChild(pvEl('div','st',title));
+  if(sub) sh.appendChild(pvEl('div','ss',sub));
+  s.appendChild(sh);
+  s.appendChild(pvEl('div','rule'));
+  const b=pvEl('div','body');
+  s.appendChild(b);
+  return {slide:s, body:b};
+}
+function pvTable(head, rows){
+  const t=pvEl('table');
+  const th=pvEl('thead'), tr=pvEl('tr');
+  head.forEach(h=>{const e=pvEl('th');e.textContent=h;tr.appendChild(e);});
+  th.appendChild(tr); t.appendChild(th);
+  const tb=pvEl('tbody');
+  rows.forEach(r=>{
+    const x=pvEl('tr');
+    r.forEach(c=>{const d=pvEl('td');d.textContent=String(c);x.appendChild(d);});
+    tb.appendChild(x);
+  });
+  t.appendChild(tb);
+  return t;
+}
+/* SVG折れ線グラフ（複数系列） */
+function pvLine(labels, series, w, h, yLabel){
+  const padL=52,padR=14,padT=12,padB=48;
+  const NS='http://www.w3.org/2000/svg';
+  const svg=document.createElementNS(NS,'svg');
+  svg.setAttribute('viewBox','0 0 '+w+' '+h);
+  svg.setAttribute('width',w); svg.setAttribute('height',h);
+  const mk=(t,a)=>{const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);return e;};
+  let max=0;
+  series.forEach(s=>s.values.forEach(v=>{ if(v!=null&&v>max) max=v; }));
+  if(max<=0) max=1;
+  const nice=Math.pow(10,Math.floor(Math.log10(max)));
+  const top=Math.ceil(max/nice)*nice;
+  const pw=w-padL-padR, ph=h-padT-padB;
+  // グリッド
+  for(let i=0;i<=4;i++){
+    const y=padT+ph*i/4, v=top*(1-i/4);
+    svg.appendChild(mk('line',{x1:padL,y1:y,x2:w-padR,y2:y,stroke:'#E3E9F2','stroke-width':1}));
+    const tx=mk('text',{x:padL-7,y:y+4,'text-anchor':'end','font-size':10,fill:'#8A97AD'});
+    tx.textContent=Math.round(v).toLocaleString('ja-JP'); svg.appendChild(tx);
+  }
+  if(yLabel){
+    const t=mk('text',{x:12,y:padT+ph/2,'font-size':10,fill:'#8A97AD',transform:'rotate(-90 12 '+(padT+ph/2)+')','text-anchor':'middle'});
+    t.textContent=yLabel; svg.appendChild(t);
+  }
+  const n=labels.length;
+  const X=i=> n<=1? padL+pw/2 : padL + pw*i/(n-1);
+  const Y=v=> padT + ph*(1 - v/top);
+  // ラベル（重なるなら間引き）
+  const step=Math.max(1, Math.ceil(n/14));
+  labels.forEach((l,i)=>{
+    if(i%step) return;
+    const t=mk('text',{x:X(i),y:h-padB+18,'text-anchor':'end','font-size':10,fill:'#5A6B86',
+      transform:'rotate(-45 '+X(i)+' '+(h-padB+18)+')'});
+    t.textContent=l; svg.appendChild(t);
+  });
+  // 系列
+  series.forEach((s,si)=>{
+    const col=s.color||PV_SERIES[si%PV_SERIES.length];
+    let d='',started=false;
+    s.values.forEach((v,i)=>{
+      if(v==null) return;
+      d+=(started?' L ':'M ')+X(i)+' '+Y(v); started=true;
+    });
+    if(d) svg.appendChild(mk('path',{d,fill:'none',stroke:col,'stroke-width':2.2,
+      'stroke-linejoin':'round','stroke-linecap':'round'}));
+    s.values.forEach((v,i)=>{ if(v!=null)
+      svg.appendChild(mk('circle',{cx:X(i),cy:Y(v),r:3,fill:col})); });
+  });
+  // 凡例
+  const lg=mk('g',{});
+  let lx=padL;
+  series.forEach((s,si)=>{
+    const col=s.color||PV_SERIES[si%PV_SERIES.length];
+    lg.appendChild(mk('rect',{x:lx,y:h-16,width:11,height:11,rx:2,fill:col}));
+    const t=mk('text',{x:lx+16,y:h-6.5,'font-size':11,fill:'#5A6B86'});
+    t.textContent=s.name; lg.appendChild(t);
+    lx += 16 + s.name.length*7.2 + 20;
+  });
+  svg.appendChild(lg);
+  return svg;
+}
+
+function buildPreview(){
+  const host=document.getElementById('pvPages');
+  host.innerHTML='';
+  const per='対象: '+R.site+'　期間: '+R.period;
+  const T=($('#title').value||'HFO1 品質・生産性報告');
+  const SUB=($('#subtitle').value||'');
+  const K=R.kpi;
+  const has=id=>sel.has(id) && ITEMS.find(i=>i.id===id).has(R);
+  const pages=[];
+
+  // 表紙
+  if(has('cover')){
+    const s=pvEl('div','slide cover');
+    const a=pvEl('div','ct',T); const b=pvEl('div','cp',per);
+    const c=pvEl('div','cs',SUB);
+    const d=pvEl('div','cd','作成日: '+new Date().toLocaleDateString('ja-JP'));
+    s.appendChild(a);s.appendChild(b);s.appendChild(c);s.appendChild(d);
+    pages.push(s);
+  }
+  // サマリー
+  if(has('kpi')){
+    const {slide,body}=pvSlide('サマリー',per);
+    const cards=pvEl('div','kcards');
+    [['Stow DPMO',fmtI(K.stowDpmo),PV_Q],
+     ['Pick 作業ミス DPMO',fmtI(K.workDpmo),'#C47F17'],
+     ['Pick 欠陥 DPMO',fmtI(K.shelfDpmo),PV_P]].forEach(k=>{
+      const c=pvEl('div','kcard');
+      c.appendChild(pvEl('div','l',k[0]));
+      const v=pvEl('div','v',k[1]); v.style.color=k[2];
+      c.appendChild(v); cards.appendChild(c);
+    });
+    body.appendChild(cards);
+    body.appendChild(pvTable(['項目','値'],[
+      ['Stow 処理 Units', fmtI(K.stowU)],
+      ['Pick 処理 Units', fmtI(K.ufU)],
+      ['Stow 欠陥 数', fmtI(K.sipQ)+'（'+K.sipCnt+' 件）'],
+      ['Pick 作業ミス Units', fmtI(K.pmU)],
+      ['Pick 欠陥 Units', fmtI(K.mfU)],
+      ['稼働人数（延べ）', fmtI(K.ppl)+' 名'],
+      ['稼働日数', R.opDays.length+' 日'],
+    ]));
+    const n=pvEl('div','note','DPMO の分母は実績データ (OpsUnits)。Stow 分母には Transfer In を含む。');
+    body.appendChild(n);
+    pages.push(slide);
+  }
+  // カバレッジ
+  if(has('gap')){
+    const {slide,body}=pvSlide('データカバレッジ',per);
+    const miss=R.gaps.filter(g=>g.missing.length);
+    const w=pvEl('div','warnbox');
+    w.textContent='⚠ 欠陥データが未取込の日があります。該当日は欠陥 0 件として計上しているため、DPMO が実際より低く出ている可能性があります。';
+    body.appendChild(w);
+    body.appendChild(pvTable(['データ','欠落日数','欠落日'],
+      miss.map(g=>[g.label, g.missing.length+' 日',
+        g.missing.length>6? g.missing.slice(0,6).join(', ')+' ほか' : g.missing.join(', ')])));
+    pages.push(slide);
+  }
+  // 品質推移
+  if(has('qtrend')){
+    const {slide,body}=pvSlide('品質: 日別 DPMO 推移',per);
+    const d=R.daily;
+    body.appendChild(pvLine(d.map(x=>x.date.slice(5)),[
+      {name:'Stow DPMO',values:d.map(x=>x.stowDpmo),color:PV_Q},
+      {name:'Pick 作業ミス DPMO',values:d.map(x=>x.workDpmo),color:'#C47F17'},
+      {name:'Pick 欠陥 DPMO',values:d.map(x=>x.shelfDpmo),color:PV_P},
+    ],910,390,'DPMO'));
+    pages.push(slide);
+  }
+  // 生産性推移
+  if(has('ptrend')){
+    const ks=Object.keys(R.prodProcs);
+    const dates=[...new Set(ks.flatMap(k=>R.prodProcs[k].map(x=>x.date)))].sort();
+    const {slide,body}=pvSlide('生産性: 日別 UPH 推移',per);
+    body.appendChild(pvLine(dates.map(x=>x.slice(5)),
+      ks.slice(0,4).map(k=>{
+        const m={}; R.prodProcs[k].forEach(x=>m[x.date]=x.uph);
+        return {name:k, values:dates.map(d=>m[d]!=null?Math.round(m[d]*10)/10:null)};
+      }),910,390,'UPH (u/h)'));
+    pages.push(slide);
+  }
+  // 品質×生産性
+  if(has('cross')){
+    const {slide,body}=pvSlide('品質 × 生産性（工程別）',per);
+    const dm={'Stow to Prime':K.stowDpmo,'Pick':K.workDpmo,'Pick (FR)':K.workDpmo,'Stow to Prime (FR)':K.stowDpmo};
+    const rows=Object.keys(R.prodProcs).map(k=>{
+      const a=R.prodProcs[k];
+      const v=a.reduce((s,x)=>s+x.vol,0), h=a.reduce((s,x)=>s+x.hrs,0);
+      return [k, fmt(h?v/h:0), fmtI(v), fmt(h), dm[k]!=null?fmtI(dm[k]):'—'];
+    });
+    body.appendChild(pvTable(['工程（ソース）','UPH','処理 Vol','工数 (h)','DPMO'],rows));
+    body.appendChild(pvEl('div','note','UPH は生産性データ、DPMO は品質データから算出。指標の性質が異なるため同一グラフには重ねず、表で並置しています。'));
+    pages.push(slide);
+  }
+  // 作業者別 品質
+  if(has('worker')){
+    const {slide,body}=pvSlide('作業者別 品質（Stow DPMO 降順・上位 15 名）',per);
+    body.appendChild(pvTable(['作業者','Stow 処理','欠陥件','欠陥数','Pick ミス','個人 DPMO'],
+      R.workers.slice(0,15).map((w,i)=>[(i+1)+'. '+w.name, fmtI(w.su), w.cnt, fmtI(w.q), w.pick, fmtI(w.dpmo)])));
+    pages.push(slide);
+  }
+  // 作業者別 UPH
+  if(has('uph')){
+    Object.keys(R.uphRank).slice(0,2).forEach(pr=>{
+      const {slide,body}=pvSlide('作業者別 UPH ランキング（'+pr+'）',per);
+      const list=R.uphRank[pr];
+      const med=list.length? list[Math.floor(list.length/2)].uph : 0;
+      body.appendChild(pvTable(['作業者','Units','工数 (h)','UPH','中央値比'],
+        list.slice(0,15).map((x,i)=>[(i+1)+'. '+x.name, fmtI(x.units), fmt(x.hours), fmt(x.uph),
+          med? (x.uph>=med*1.1?'◎':x.uph>=med*0.9?'○':'△') : '—'])));
+      body.appendChild(pvEl('div','note','中央値 '+fmt(med)+' u/h と比較（◎: +10%以上 / ○: ±10% / △: -10%以下）'));
+      pages.push(slide);
+    });
+  }
+  // フロア別
+  if(has('floor')){
+    const {slide,body}=pvSlide('フロア別 Pick 欠陥',per);
+    body.appendChild(pvTable(['フロア','Pick 処理 Units','欠品 Units','欠品 DPMO','欠品率 (%)'],
+      R.floors.map(f=>[f.floor, fmtI(f.units), fmtI(f.miss), fmtI(f.dpmo), f.units? (Math.round(f.miss/f.units*10000)/100) : 0])));
+    pages.push(slide);
+  }
+  // 日別明細
+  if(has('daily')){
+    const rows=R.daily.slice(-12);
+    const {slide,body}=pvSlide('日別 明細',per+'（直近 '+rows.length+' 日）');
+    body.appendChild(pvTable(['日付','Stow 処理','稼働','欠陥数','Pickミス','Stow DPMO','Pick DPMO'],
+      rows.map(d=>[d.date, fmtI(d.su), d.ppl, fmtI(d.sq), fmtI(d.pmu), fmtI(d.stowDpmo), fmtI(d.workDpmo)])));
+    pages.push(slide);
+  }
+
+  pages.forEach((s,i)=>{
+    if(!s.classList.contains('cover')){
+      const n=pvEl('div','pnum',String(i+1)); s.appendChild(n);
+    }
+    host.appendChild(s);
+  });
+  document.getElementById('pvCount').textContent=pages.length+' スライド';
+  document.getElementById('pvWrap').style.display='block';
+  document.body.style.overflow='hidden';
+}
+function closePreview(){
+  document.getElementById('pvWrap').style.display='none';
+  document.body.style.overflow='';
 }
 
 /* ---- PowerPoint生成 ---- */
@@ -546,6 +852,10 @@ $('#site').onchange=recompute;
 $('#selAll').onclick=()=>{ITEMS.forEach(i=>{if(R&&i.has(R))sel.add(i.id);});renderItems();};
 $('#selNone').onclick=()=>{sel.clear();sel.add('cover');renderItems();};
 $('#gen').onclick=()=>generate().catch(e=>log('✕ 生成に失敗しました：'+e.message));
+$('#preview').onclick=()=>{ try{ buildPreview(); }catch(e){ log('✕ プレビュー失敗: '+e.message); } };
+$('#pvClose').onclick=closePreview;
+$('#pvPrint').onclick=()=>window.print();
+document.addEventListener('keydown',e=>{ if(e.key==='Escape') closePreview(); });
 </script>
 </body>
 </html>
