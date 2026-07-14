@@ -102,7 +102,7 @@ a.back{color:var(--accent);text-decoration:none;font-size:13px}
 <body>
 <div class="wrap">
   <h1>HFO1 品質・生産性 資料出力</h1>
-  <div class="sub">ダッシュボードと同じデータ（ブラウザ内 IndexedDB）を自動で読み込みます。項目を選んで PowerPoint を生成します。　<a class="back" href="./index.html">← ダッシュボードに戻る</a>　<span style="color:#0f9d8f;font-weight:700">v3.2（未収録工程を明示）</span></div>
+  <div class="sub">ダッシュボードと同じデータ（ブラウザ内 IndexedDB）を自動で読み込みます。項目を選んで PowerPoint を生成します。　<a class="back" href="./index.html">← ダッシュボードに戻る</a>　<span style="color:#0f9d8f;font-weight:700">v3.3（Stow欠落を修正）</span></div>
 
   <div class="card">
     <div class="chead">1. 対象データ</div>
@@ -476,6 +476,23 @@ function pvLine(labels, series, w, h, yLabel){
   return svg;
 }
 
+
+/* ★グラフに出す工程の選定
+   PPRには TOTAL / FC Summary / Support など「工程ではない行」が混ざる。
+   これらを除外し、主要工程を固定順（Stowを必ず含む）で選ぶ。
+   Object.keys() の並び順に依存すると、Stow が切り捨てられることがあった。 */
+const PROC_ORDER=['Stow to Prime','Pick','Receive','Pack','Transfer In and Stow','Outbound Prep','Ship'];
+const PROC_EXCLUDE=/^(TOTAL|FC Summary|RC Summary|Support|OB Lead\/PA|IB Prep|IB Defect|OB Defect|RSR|Transfer Out)/i;
+function pickProcs(prodProcs, limit){
+  const keys=Object.keys(prodProcs).filter(k=>!PROC_EXCLUDE.test(k.replace(/ \((PPR|FR)\)$/,'')));
+  const rank=k=>{
+    const bare=k.replace(/ \((PPR|FR)\)$/,'');
+    const i=PROC_ORDER.indexOf(bare);
+    return i<0? 99 : i;
+  };
+  return keys.sort((a,b)=>rank(a)-rank(b) || a.localeCompare(b)).slice(0, limit||6);
+}
+
 function buildPreview(){
   const host=document.getElementById('pvPages');
   host.innerHTML='';
@@ -546,11 +563,11 @@ function buildPreview(){
   }
   // 生産性推移
   if(has('ptrend')){
-    const ks=Object.keys(R.prodProcs);
+    const ks=pickProcs(R.prodProcs, 5);
     const dates=[...new Set(ks.flatMap(k=>R.prodProcs[k].map(x=>x.date)))].sort();
     const {slide,body}=pvSlide('生産性: 日別 UPH 推移',per);
     body.appendChild(pvLine(dates.map(x=>x.slice(5)),
-      ks.slice(0,4).map(k=>{
+      ks.map(k=>{
         const m={}; R.prodProcs[k].forEach(x=>m[x.date]=x.uph);
         return {name:k, values:dates.map(d=>m[d]!=null?Math.round(m[d]*10)/10:null)};
       }),910,390,'UPH (u/h)'));
@@ -570,7 +587,7 @@ function buildPreview(){
   if(has('cross')){
     const {slide,body}=pvSlide('品質 × 生産性（工程別）',per);
     const dm={'Stow to Prime':K.stowDpmo,'Pick':K.workDpmo,'Pick (FR)':K.workDpmo,'Stow to Prime (FR)':K.stowDpmo};
-    const rows=Object.keys(R.prodProcs).map(k=>{
+    const rows=pickProcs(R.prodProcs, 8).map(k=>{
       const a=R.prodProcs[k];
       const v=a.reduce((s,x)=>s+x.vol,0), h=a.reduce((s,x)=>s+x.hrs,0);
       return [k, fmt1(h?v/h:0), fmtI(v), fmt1(h), dm[k]!=null?fmtI(dm[k]):'—'];
@@ -722,11 +739,11 @@ async function generate(){
   // 生産性: 日別UPH推移
   if(sel.has('ptrend')){
     const s=pptx.addSlide(); addTitle(s,'生産性：日別UPH推移',P);
-    const keys=Object.keys(R.prodProcs);
+    const keys=pickProcs(R.prodProcs, 6);
     const dates=[...new Set(keys.flatMap(k=>R.prodProcs[k].map(x=>x.date)))].sort();
     const lab=dates.map(d=>d.slice(5));
     const COL=['0F9D8F','1F5FA8','C26A1E','7B4FB0','C0392B','2F8F4E','D9A406'];
-    const series=keys.slice(0,6).map((k,i)=>{
+    const series=keys.map((k,i)=>{
       const m={}; R.prodProcs[k].forEach(x=>m[x.date]=x.uph);
       return {name:k, labels:lab, values:dates.map(d=>m[d]!=null?Math.round(m[d]*10)/10:null)};
     });
@@ -749,7 +766,7 @@ async function generate(){
   if(sel.has('cross')){
     const s=pptx.addSlide(); addTitle(s,'品質 × 生産性（工程別）',P);
     const Q={'Stow to Prime':R.kpi.stowDpmo,'Pick':R.kpi.workDpmo};
-    const rows=Object.keys(R.prodProcs).map(k=>{
+    const rows=pickProcs(R.prodProcs, 8).map(k=>{
       const a=R.prodProcs[k];
       const v=a.reduce((s,x)=>s+x.vol,0), h=a.reduce((s,x)=>s+x.hrs,0);
       const base=k.replace(/ \((PPR|FR)\)$/,'');
