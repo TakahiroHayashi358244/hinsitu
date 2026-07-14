@@ -102,7 +102,7 @@ a.back{color:var(--accent);text-decoration:none;font-size:13px}
 <body>
 <div class="wrap">
   <h1>HFO1 品質・生産性 資料出力</h1>
-  <div class="sub">ダッシュボードと同じデータ（ブラウザ内 IndexedDB）を自動で読み込みます。項目を選んで PowerPoint を生成します。　<a class="back" href="./index.html">← ダッシュボードに戻る</a>　<span style="color:#0f9d8f;font-weight:700">v3（プレビュー / PDF保存 対応）</span></div>
+  <div class="sub">ダッシュボードと同じデータ（ブラウザ内 IndexedDB）を自動で読み込みます。項目を選んで PowerPoint を生成します。　<a class="back" href="./index.html">← ダッシュボードに戻る</a>　<span style="color:#0f9d8f;font-weight:700">v3.1（プレビュー修正済み）</span></div>
 
   <div class="card">
     <div class="chead">1. 対象データ</div>
@@ -563,7 +563,7 @@ function buildPreview(){
     const rows=Object.keys(R.prodProcs).map(k=>{
       const a=R.prodProcs[k];
       const v=a.reduce((s,x)=>s+x.vol,0), h=a.reduce((s,x)=>s+x.hrs,0);
-      return [k, fmt(h?v/h:0), fmtI(v), fmt(h), dm[k]!=null?fmtI(dm[k]):'—'];
+      return [k, fmt1(h?v/h:0), fmtI(v), fmt1(h), dm[k]!=null?fmtI(dm[k]):'—'];
     });
     body.appendChild(pvTable(['工程（ソース）','UPH','処理 Vol','工数 (h)','DPMO'],rows));
     body.appendChild(pvEl('div','note','UPH は生産性データ、DPMO は品質データから算出。指標の性質が異なるため同一グラフには重ねず、表で並置しています。'));
@@ -583,9 +583,9 @@ function buildPreview(){
       const list=R.uphRank[pr];
       const med=list.length? list[Math.floor(list.length/2)].uph : 0;
       body.appendChild(pvTable(['作業者','Units','工数 (h)','UPH','中央値比'],
-        list.slice(0,15).map((x,i)=>[(i+1)+'. '+x.name, fmtI(x.units), fmt(x.hours), fmt(x.uph),
+        list.slice(0,15).map((x,i)=>[(i+1)+'. '+x.name, fmtI(x.units), fmt1(x.hours), fmt1(x.uph),
           med? (x.uph>=med*1.1?'◎':x.uph>=med*0.9?'○':'△') : '—'])));
-      body.appendChild(pvEl('div','note','中央値 '+fmt(med)+' u/h と比較（◎: +10%以上 / ○: ±10% / △: -10%以下）'));
+      body.appendChild(pvEl('div','note','中央値 '+fmt1(med)+' u/h と比較（◎: +10%以上 / ○: ±10% / △: -10%以下）'));
       pages.push(slide);
     });
   }
