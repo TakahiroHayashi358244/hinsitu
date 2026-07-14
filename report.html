@@ -102,7 +102,7 @@ a.back{color:var(--accent);text-decoration:none;font-size:13px}
 <body>
 <div class="wrap">
   <h1>HFO1 品質・生産性 資料出力</h1>
-  <div class="sub">ダッシュボードと同じデータ（ブラウザ内 IndexedDB）を自動で読み込みます。項目を選んで PowerPoint を生成します。　<a class="back" href="./index.html">← ダッシュボードに戻る</a>　<span style="color:#0f9d8f;font-weight:700">v3.1（プレビュー修正済み）</span></div>
+  <div class="sub">ダッシュボードと同じデータ（ブラウザ内 IndexedDB）を自動で読み込みます。項目を選んで PowerPoint を生成します。　<a class="back" href="./index.html">← ダッシュボードに戻る</a>　<span style="color:#0f9d8f;font-weight:700">v3.2（未収録工程を明示）</span></div>
 
   <div class="card">
     <div class="chead">1. 対象データ</div>
@@ -554,6 +554,16 @@ function buildPreview(){
         const m={}; R.prodProcs[k].forEach(x=>m[x.date]=x.uph);
         return {name:k, values:dates.map(d=>m[d]!=null?Math.round(m[d]*10)/10:null)};
       }),910,390,'UPH (u/h)'));
+    // 収録されていない主要工程を明示（Stowが出ない等の取り違えを防ぐ）
+    const bare=new Set(ks.map(k=>k.replace(/ \((PPR|FR)\)$/,'')));
+    const lack=['Stow to Prime','Pick','Receive','Pack'].filter(x=>!bare.has(x));
+    if(lack.length){
+      const n=pvEl('div','note');
+      n.style.color='#9A3412';
+      n.textContent='※ 未収録の工程: '+lack.join(' / ')
+        +'　該当工程の processPathReport（日別）または functionRollupReport を取り込むとグラフに追加されます。';
+      body.appendChild(n);
+    }
     pages.push(slide);
   }
   // 品質×生産性
@@ -726,6 +736,13 @@ async function generate(){
        catAxisLabelFontSize:9,valAxisLabelFontSize:9,valAxisTitle:'UPH (u/h)',showValAxisTitle:true,
        catAxisLabelFontFace:FONT,valAxisLabelFontFace:FONT,valAxisTitleFontFace:FONT,legendFontFace:FONT,titleFontFace:FONT,
        catAxisLabelRotate:45});
+    // 未収録工程を明示（Stowが出ない等の取り違え防止）
+    const bare=new Set(keys.map(x=>x.replace(/ \((PPR|FR)\)$/,'')));
+    const lack=['Stow to Prime','Pick','Receive','Pack'].filter(x=>!bare.has(x));
+    if(lack.length){
+      s.addText('※ 未収録の工程: '+lack.join(' / ')+'　該当工程の processPathReport（日別）または functionRollupReport を取り込むとグラフに追加されます。',
+        {x:0.45,y:5.35,w:9.1,h:0.35,fontSize:10,color:'9A3412',fontFace:FONT});
+    }
   }
 
   // 品質×生産性 並置
