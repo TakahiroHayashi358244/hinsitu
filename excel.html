@@ -250,10 +250,14 @@ function buildWorkbook(){
   if(!RAW.q.length){ boot.innerHTML='<div class="warn">品質データがありません。先に<a href="./index.html">ダッシュボード</a>で取り込んでください。</div>'; return; }
   const sites=[...new Set(RAW.q.map(r=>r.warehouse_id||r.site).filter(Boolean))].sort();
   const ss=$('#site'); sites.forEach(x=>{const o=el('option');o.value=x;o.textContent=x;ss.appendChild(o);});
-  ss.value=sites.find(x=>/HFO1/i.test(x))||sites[0]||'';
   const jd=[...new Set(RAW.q.filter(r=>r._ds==='jisseki').map(r=>r._date).filter(Boolean))].sort();
   const last=jd[jd.length-1]||'';
   if(last){$('#to').value=last;$('#from').value=shift(last,-6);}
+  // ダッシュボードから渡された期間・サイトを反映
+  const qs=new URLSearchParams(location.search);
+  ss.value=qs.get('site')||sites.find(x=>/HFO1/i.test(x))||sites[0]||'';
+  if(qs.get('from')) $('#from').value=qs.get('from');
+  if(qs.get('to'))   $('#to').value=qs.get('to');
   $('#main').style.display='block'; $('#foot').style.display='flex';
   ss.onchange=recalc; $('#from').onchange=recalc; $('#to').onchange=recalc;
   $('#wk').onclick=()=>{if(last){$('#to').value=last;$('#from').value=shift(last,-6);recalc();}};
