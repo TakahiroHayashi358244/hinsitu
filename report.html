@@ -102,7 +102,7 @@ a.back{color:var(--accent);text-decoration:none;font-size:13px}
 <body>
 <div class="wrap">
   <h1>HFO1 品質・生産性 資料出力</h1>
-  <div class="sub">ダッシュボードと同じデータ（ブラウザ内 IndexedDB）を自動で読み込みます。項目を選んで PowerPoint を生成します。　<a class="back" href="./index.html">← ダッシュボードに戻る</a>　<span style="color:#0f9d8f;font-weight:700">v3.3（Stow欠落を修正）</span></div>
+  <div class="sub">ダッシュボードと同じデータ（ブラウザ内 IndexedDB）を自動で読み込みます。項目を選んで PowerPoint を生成します。　<a class="back" href="./index.html">← ダッシュボード</a>　<a class="back" href="./excel.html">Excel出力へ</a>　<span style="color:#0f9d8f;font-weight:700">v3.4（ミス詳細追加）</span></div>
 
   <div class="card">
     <div class="chead">1. 対象データ</div>
@@ -295,6 +295,7 @@ function compute(site,from,to){
 
   const period=(from||opDays[0]||'')+' 〜 '+(to||opDays[opDays.length-1]||'');
   return {site,period,from,to,opDays,gaps,daily,workers,floors,prodProcs,uphRank,
+    raw:{sipsddr:sip, pickmiss:pm, missingfloor:mf},
     kpi:{stowDpmo:dpmo(sipQ,stowU), workDpmo:dpmo(pmU,ufU), shelfDpmo:dpmo(mfU,ufU),
          stowU, pickU, ufU, sipQ, sipCnt:sip.length, pmU, mfU,
          ppl:new Set(jis.map(r=>r.person)).size}};
@@ -321,6 +322,8 @@ const ITEMS=[
    has:R=>R.floors.length},
   {id:'daily', t:'日別推移（表）', d:'日付ごとの処理数・欠陥数・DPMO一覧',
    has:R=>R.daily.length},
+  {id:'detail',t:'ミス詳細（明細）', d:'Stow欠陥 / Pick作業ミス / 棚欠品の1件ごとの明細（日付・作業者・商品・容器）',
+   has:R=>R.raw && ((R.raw.sipsddr||[]).length||(R.raw.pickmiss||[]).length||(R.raw.missingfloor||[]).length)},
 ];
 const sel=new Set(['cover','kpi','gap','qtrend','ptrend','cross','worker','floor']);
 
@@ -823,6 +826,40 @@ async function generate(){
     s.addTable(tableRows(['日付','Stow処理','人数','欠陥数','Stow DPMO','Pickミス DPMO','Pick欠陥 DPMO'],rows),
       {x:0.45,y:1.35,w:9.1,colW:[1.5,1.4,0.9,1.1,1.5,1.5,1.2],
        border:{pt:0.5,color:'D9DEE7'},fontFace:FONT,autoPage:true,autoPageRepeatHeader:true});
+  }
+
+  if(sel.has('detail') && R.raw){
+    const fmtDate=v=>String(v||'').slice(0,10);
+    // Stow欠陥明細（SIPSDDR）
+    const sip=R.raw.sipsddr||[];
+    if(sip.length){
+      const s=pptx.addSlide(); addTitle(s,'ミス詳細：Stow欠陥（SIPSDDR）',P+'　'+sip.length+'件');
+      const rows=sip.map(r=>[fmtDate(r.created_date), r.user_logins||'', r.symptoms||'',
+        fmtI(num(r.quantity)), (r.item_name||'').slice(0,18), r.current_container||'']);
+      s.addTable(tableRows(['日付','アカウント','症状','数量','商品名','容器'],rows),
+        {x:0.35,y:1.3,w:9.3,colW:[1.1,1.3,1.7,0.8,2.9,1.5],fontSize:9,
+         border:{pt:0.5,color:'D9DEE7'},fontFace:FONT,autoPage:true,autoPageRepeatHeader:true});
+    }
+    // Pick作業ミス明細（PickMissData）
+    const pm=R.raw.pickmiss||[];
+    if(pm.length){
+      const s=pptx.addSlide(); addTitle(s,'ミス詳細：Pick作業ミス（PickMissData）',P+'　'+pm.length+'件');
+      const rows=pm.map(r=>[fmtDate(r.error_day), r.error_person||'', r.error_type||'',
+        fmtI(num(r.error_unit)), (r.item_name||'').slice(0,16), r.error_bin_id||'']);
+      s.addTable(tableRows(['日付','作業者','エラー種別','数量','商品名','ビン'],rows),
+        {x:0.35,y:1.3,w:9.3,colW:[1.1,1.3,1.6,0.8,2.7,1.8],fontSize:9,
+         border:{pt:0.5,color:'D9DEE7'},fontFace:FONT,autoPage:true,autoPageRepeatHeader:true});
+    }
+    // 棚欠品明細（PickMissingFloor）
+    const mf=R.raw.missingfloor||[];
+    if(mf.length){
+      const s=pptx.addSlide(); addTitle(s,'ミス詳細：棚欠品（PickMissingFloor）',P+'　'+mf.length+'件');
+      const rows=mf.map(r=>[fmtDate(r.snapshot_day), r.bin_module||'', r.bin||'',
+        fmtI(num(r.gross_units)), r.source_item_id||'']);
+      s.addTable(tableRows(['日付','フロア','ビン','欠品数','商品ID'],rows),
+        {x:0.6,y:1.3,w:8.8,colW:[1.4,1.6,2.0,1.2,2.6],fontSize:9,
+         border:{pt:0.5,color:'D9DEE7'},fontFace:FONT,autoPage:true,autoPageRepeatHeader:true});
+    }
   }
 
   const fn='HFO1_品質生産性報告_'+(R.from||R.opDays[0]||'')+'_'+(R.to||R.opDays[R.opDays.length-1]||'')+'.pptx';
