@@ -102,7 +102,7 @@ a.back{color:var(--accent);text-decoration:none;font-size:13px}
 <body>
 <div class="wrap">
   <h1>HFO1 品質・生産性 資料出力</h1>
-  <div class="sub">ダッシュボードと同じデータ（ブラウザ内 IndexedDB）を自動で読み込みます。項目を選んで PowerPoint を生成します。　<a class="back" href="./index.html">← ダッシュボード</a>　<a class="back" href="./excel.html">Excel出力へ</a>　<span style="color:#0f9d8f;font-weight:700">v3.4（ミス詳細追加）</span></div>
+  <div class="sub">ダッシュボードと同じデータ（ブラウザ内 IndexedDB）を自動で読み込みます。項目を選んで PowerPoint を生成します。　<a class="back" href="./index.html">← ダッシュボード</a>　<a class="back" href="./excel.html">Excel出力へ</a>　<span style="color:#0f9d8f;font-weight:700">v3.5（既定を6項目に）</span></div>
 
   <div class="card">
     <div class="chead">1. 対象データ</div>
@@ -325,7 +325,7 @@ const ITEMS=[
   {id:'detail',t:'ミス詳細（明細）', d:'Stow欠陥 / Pick作業ミス / 棚欠品の1件ごとの明細（日付・作業者・商品・容器）',
    has:R=>R.raw && ((R.raw.sipsddr||[]).length||(R.raw.pickmiss||[]).length||(R.raw.missingfloor||[]).length)},
 ];
-const sel=new Set(['cover','kpi','gap','qtrend','ptrend','cross','worker','floor']);
+const sel=new Set(['cover','kpi','qtrend','ptrend','cross','detail']);
 
 function renderItems(){
   const host=$('#items'); host.innerHTML='';
