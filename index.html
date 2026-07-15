@@ -1997,8 +1997,19 @@ function buildDash(){
     window.open('./report.html?'+q, '_blank');
   };
   pptWrap.appendChild(ppt);
+  const xlsWrap=el('div');
+  const xls=el('button','btn pri','Excel出力');
+  xls.style.background='#217346'; xls.style.borderColor='#217346';
+  xls.title='別ページでExcelを作成します（同じデータを自動で読み込みます）';
+  xls.onclick=()=>{
+    const site=$('#qSite')?$('#qSite').value:'';
+    const f=$('#qFrom')?$('#qFrom').value:'', t=$('#qTo')?$('#qTo').value:'';
+    const q=new URLSearchParams({site,from:f,to:t}).toString();
+    window.open('./excel.html?'+q, '_blank');
+  };
+  xlsWrap.appendChild(xls);
   const backWrap=el('div'); const back=el('button','btn gho','取込に戻る'); back.onclick=()=>{ d.style.display='none'; $('#ingest').style.display='block'; }; backWrap.appendChild(back);
-  fb.appendChild(siteWrap); fb.appendChild(fWrap); fb.appendChild(tWrap); fb.appendChild(goWrap); fb.appendChild(periodWrap); fb.appendChild(sp); fb.appendChild(pptWrap); fb.appendChild(backWrap);
+  fb.appendChild(siteWrap); fb.appendChild(fWrap); fb.appendChild(tWrap); fb.appendChild(goWrap); fb.appendChild(periodWrap); fb.appendChild(sp); fb.appendChild(pptWrap); fb.appendChild(xlsWrap); fb.appendChild(backWrap);
   d.appendChild(fb);
 
   // タブ
