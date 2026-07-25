@@ -1332,7 +1332,239 @@ async function cfPutRaw(site, weekKey, snapObj){
   return res.json();
 }
 
-/* 取込完了フック本体：担当サイトを算出し、サマリ＋明細をアップロード
+/* ═══════════════════════════════════════════════════════════
+   [段階2] 台帳版：取込データ → 4台帳を生成
+   既存 computeQuality には手を付けず、独立関数として実装。
+   台帳A volume / B process / C worker（分母）＋ D defects（分子・明細）
+   ═══════════════════════════════════════════════════════════ */
+
+// symptoms/error_type を統一種別へ正規化
+function normDefectType(raw){
+  const s=String(raw||'').toLowerCase();
+  if(s.includes('overage')||s==='over'||s.includes('unexpected quantity overage')) return 'Overage';
+  if(s.includes('shortage')||s==='short') return 'Shortage';
+  if(s==='fps') return 'FPS';
+  if(s.includes('欠品')||s.includes('missing')) return '欠品';
+  return raw||'(不明)';
+}
+
+// 台帳D: 欠陥明細を1件ずつ生成（problem_id / errror_id を id に）
+async function buildDefects(site){
+  const a2n=acctName();
+  const nm=login=>(login&&a2n[login])?a2n[login]:(login||'');
+  const out=[];
+  // SIPSDDR（Stow欠陥）
+  const sip=siteFilter(await getByDataset('sipsddr'), DS.sipsddr, site);
+  sip.forEach(r=>{
+    if(!r.problem_id) return;
+    out.push({
+      id:r.problem_id, d:r._date, site,
+      process:'Stow', type:normDefectType(r.symptoms),
+      acct:r.user_logins||'', name:nm(r.user_logins),
+      area:r.current_container||r.original_container||'', item:r.item_name||r.asin||'',
+      qty:num(r.quantity),
+      origProcess:'Stow', origType:normDefectType(r.symptoms),
+      causeType:'', cause:'', updatedBy:'ingest'
+    });
+  });
+  // PickMissData（作業ミス）— error_process が責任所在の初期値
+  const pm=siteFilter(await getByDataset('pickmiss'), DS.pickmiss, site);
+  pm.forEach(r=>{
+    if(!r.errror_id) return;
+    const proc=(r.error_process||'Pick').trim();
+    out.push({
+      id:r.errror_id, d:r._date, site,
+      process:proc, type:normDefectType(r.error_type),
+      acct:r.error_person||'', name:nm(r.error_person),
+      area:r.pick_area_name||r.error_bin_id||'', item:r.item_name||r.asin||'',
+      qty:num(r.error_unit),
+      origProcess:proc, origType:normDefectType(r.error_type),
+      causeType:'', cause:'', updatedBy:'ingest'
+    });
+  });
+  // PickMissingFloor（棚欠品）— idは合成（元データに一意IDなし）
+  const mf=siteFilter(await getByDataset('missingfloor'), DS.missingfloor, site);
+  mf.forEach((r,i)=>{
+    const id='MF|'+site+'|'+(r._date||'')+'|'+(r.bin_module||r.drop_zone_name||'')+'|'+(r.fnsku||r.asin||i);
+    out.push({
+      id, d:r._date, site,
+      process:'Pick', type:'欠品',
+      acct:'', name:'',
+      area:r.bin_module||r.drop_zone_name||'', item:r.title||r.asin||'',
+      qty:num(r.gross_units||r.quantity),
+      origProcess:'Pick', origType:'欠品',
+      causeType:'', cause:'', updatedBy:'ingest'
+    });
+  });
+  return out;
+}
+
+// 台帳A: 日次処理量（分母）
+async function buildVolumeDaily(site){
+  const act=siteFilter(await getByDataset('jisseki'), DS.jisseki, site);
+  const byDate={};
+  act.forEach(r=>{
+    const d=r._date; if(!d) return;
+    const o=byDate[d]||(byDate[d]={d,site,receiveU:0,stowU:0,pickU:0,allU:0,ppl:new Set()});
+    o.receiveU+=num(r.receivetotalunit); o.stowU+=num(r.stowtotalunit);
+    o.pickU+=num(r.picktotalunit);
+    o.allU+=num(r.picktotalunit)+num(r.stowtotalunit)+num(r.lpstowtotalunit)+num(r.e2btotalunit)+num(r.receivetotalunit)+num(r.packtotalunit);
+    if(r.person) o.ppl.add(r.person);
+  });
+  return Object.values(byDate).map(o=>({...o,ppl:o.ppl.size}));
+}
+
+// 台帳C: 作業者別 日次処理量（分母）
+async function buildWorkerVolumeDaily(site){
+  const a2n=acctName();
+  const act=siteFilter(await getByDataset('jisseki'), DS.jisseki, site);
+  const byKey={};
+  act.forEach(r=>{
+    const d=r._date, acct=r.person; if(!d||!acct) return;
+    const k=d+'|'+acct;
+    const o=byKey[k]||(byKey[k]={d,site,acct,name:(a2n[acct]||''),receiveU:0,stowU:0,pickU:0});
+    o.receiveU+=num(r.receivetotalunit); o.stowU+=num(r.stowtotalunit); o.pickU+=num(r.picktotalunit);
+  });
+  return Object.values(byKey);
+}
+
+// 台帳B: 工程別 日次（分母）— PPR(工程別生産性)から。処理Vol・工数。
+async function buildProcessDaily(site){
+  // PPRは永続化済み（S.ppr）。日付・工程で集計。
+  const rows=(S.ppr||[]);
+  const byKey={};
+  rows.forEach(r=>{
+    const d=r.date||r._date||r.snapshot_day||''; const proc=r.process||r.proc||'';
+    if(!d||!proc) return;
+    const k=d+'|'+proc;
+    const o=byKey[k]||(byKey[k]={d,site,proc,vol:0,hours:0});
+    o.vol+=num(r.units!==undefined?r.units:r.vol); o.hours+=num(r.hours);
+  });
+  return Object.values(byKey);
+}
+
+// 4台帳をまとめて生成
+async function buildAllLedgers(site){
+  const [volume,worker,process,defects]=await Promise.all([
+    buildVolumeDaily(site), buildWorkerVolumeDaily(site), buildProcessDaily(site), buildDefects(site)
+  ]);
+  return {volume,worker,process,defects};
+}
+
+// 台帳をCloudflareへ送信
+async function cfPostLedger(site, kind, rows){
+  const base=cfBase(), token=cfToken();
+  if(!base||!token) return {skipped:true};
+  const res=await fetch(base+'/ledger?site='+encodeURIComponent(site)+'&kind='+kind,{
+    method:'POST',
+    headers:{'Content-Type':'application/json','Authorization':'Bearer '+token,'X-Site-Pass':cfPass()},
+    body:JSON.stringify({rows})
+  });
+  if(!res.ok) throw new Error('ledger '+kind+' '+res.status+' '+(await res.text()).slice(0,120));
+  return res.json();
+}
+async function cfPostDefects(site, rows){
+  const base=cfBase(), token=cfToken();
+  if(!base||!token) return {skipped:true};
+  const res=await fetch(base+'/ledger/defects?site='+encodeURIComponent(site),{
+    method:'POST',
+    headers:{'Content-Type':'application/json','Authorization':'Bearer '+token,'X-Site-Pass':cfPass()},
+    body:JSON.stringify({rows})
+  });
+  if(!res.ok) throw new Error('defects '+res.status+' '+(await res.text()).slice(0,120));
+  return res.json();
+}
+
+// 取込後：4台帳を生成して送信（段階2の実行口。既存cfAutoUploadとは別系統）
+async function cfUploadLedgers(logTarget){
+  const base=cfBase(), token=cfToken();
+  if(!base||!token) return;
+  const site=cfSite();
+  const say=(m,c)=>{ if(logTarget) syncLog(m,c,logTarget); else logLine(m,c); };
+  try{
+    const L=await buildAllLedgers(site);
+    const rv=await cfPostLedger(site,'volume',L.volume);
+    const rp=await cfPostLedger(site,'process',L.process);
+    const rw=await cfPostLedger(site,'worker',L.worker);
+    const rd=await cfPostDefects(site,L.defects);
+    say('📒 台帳送信 '+site+'：処理量'+L.volume.length+'日 / 工程'+L.process.length+'行 / 作業者'+L.worker.length+'行 / 欠陥'+L.defects.length+'件'
+      +(rd.keptEdited?('（うち確定済み'+rd.keptEdited+'件は保持）'):''),'ok');
+  }catch(e){
+    say('📒 台帳送信スキップ：'+e.message,'wn');
+    if(logTarget) throw e;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   [段階3] 台帳 → 表示計算
+   4台帳（volume/process/worker/defects）から DPMO を計算。
+   ★分子は defects の qty を process 別に集計（フラグ変更が即反映）
+   ★分母は volume の該当工程U。DPMO = 分子 ÷ 分母 × 1e6
+   期間フィルタ(from,to)対応。計算のみ・保存しない純粋関数。
+   ═══════════════════════════════════════════════════════════ */
+function computeFromLedgers(L, from, to){
+  const inRange=d=>(!from||d>=from)&&(!to||d<=to);
+  const vol=(L.volume||[]).filter(r=>inRange(r.d));
+  const wv=(L.worker||[]).filter(r=>inRange(r.d));
+  const pr=(L.process||[]).filter(r=>inRange(r.d));
+  const df=(L.defects||[]).filter(r=>inRange(r.d));
+
+  const sum=(rows,f)=>rows.reduce((s,r)=>s+(+f(r)||0),0);
+  const DPMO=(n,d)=>d?Math.round(n/d*1e6):0;
+
+  // ---- 分母合計 ----
+  const stowU=sum(vol,r=>r.stowU), pickU=sum(vol,r=>r.pickU), rcvU=sum(vol,r=>r.receiveU), allU=sum(vol,r=>r.allU);
+
+  // ---- 分子（defects の qty を process 別）----
+  const qtyByProc=proc=>sum(df.filter(r=>r.process===proc),r=>r.qty);
+  const stowQ=qtyByProc('Stow'), pickQ=qtyByProc('Pick'), rcvQ=qtyByProc('Receive');
+  // Pick内訳（type別：欠品 vs 作業ミス系）— 参考表示用
+  const pickShelfQ=sum(df.filter(r=>r.process==='Pick'&&r.type==='欠品'),r=>r.qty);
+  const pickWorkQ =sum(df.filter(r=>r.process==='Pick'&&r.type!=='欠品'),r=>r.qty);
+
+  const kpi={
+    stowU, pickU, rcvU, allU,
+    stowQ, pickQ, rcvQ,
+    stowDpmo:DPMO(stowQ,stowU),
+    pickDpmo:DPMO(pickQ,pickU),
+    rcvDpmo:DPMO(rcvQ,rcvU),
+    pickShelfDpmo:DPMO(pickShelfQ,pickU),
+    pickWorkDpmo:DPMO(pickWorkQ,pickU),
+  };
+
+  // ---- 日別推移 ----
+  const days=[...new Set([...vol.map(r=>r.d), ...df.map(r=>r.d)])].filter(Boolean).sort();
+  const volByDate={}; vol.forEach(r=>{ volByDate[r.d]=r; });
+  const daily=days.map(d=>{
+    const v=volByDate[d]||{stowU:0,pickU:0,receiveU:0,allU:0,ppl:0};
+    const dd=df.filter(r=>r.d===d);
+    const sQ=sum(dd.filter(r=>r.process==='Stow'),r=>r.qty);
+    const pQ=sum(dd.filter(r=>r.process==='Pick'),r=>r.qty);
+    const rQ=sum(dd.filter(r=>r.process==='Receive'),r=>r.qty);
+    return {date:d, su:v.stowU, ru:v.receiveU, pu:v.pickU, tu:v.allU, ppl:v.ppl||0,
+      stowQ:sQ, pickQ:pQ, rcvQ:rQ,
+      stowDpmo:DPMO(sQ,v.stowU), pickDpmo:DPMO(pQ,v.pickU), rcvDpmo:DPMO(rQ,v.receiveU)};
+  });
+
+  // ---- 作業者別（分子=その人のdefects qty[process別] / 分母=worker.stowU等）----
+  const wmap={};
+  wv.forEach(r=>{ const k=r.acct; const o=wmap[k]||(wmap[k]={acct:k,name:r.name||'',stowU:0,pickU:0,rcvU:0,stowQ:0,pickQ:0,rcvQ:0,defs:0}); o.stowU+=r.stowU; o.pickU+=r.pickU; o.rcvU+=r.receiveU; });
+  df.forEach(r=>{ if(!r.acct) return; const o=wmap[r.acct]||(wmap[r.acct]={acct:r.acct,name:r.name||'',stowU:0,pickU:0,rcvU:0,stowQ:0,pickQ:0,rcvQ:0,defs:0});
+    if(r.process==='Stow')o.stowQ+=r.qty; else if(r.process==='Pick')o.pickQ+=r.qty; else if(r.process==='Receive')o.rcvQ+=r.qty; o.defs++; });
+  const workers=Object.values(wmap).map(o=>({...o,
+    stowDpmo:DPMO(o.stowQ,o.stowU), pickDpmo:DPMO(o.pickQ,o.pickU), rcvDpmo:DPMO(o.rcvQ,o.rcvU)
+  })).filter(o=>o.defs>0||o.stowU>0||o.pickU>0)
+     .sort((a,b)=>b.stowDpmo-a.stowDpmo);
+
+  // ---- 工程別（分母=process台帳、分子=defects qty[process別]）----
+  const procAgg={}; pr.forEach(r=>{ const o=procAgg[r.proc]||(procAgg[r.proc]={proc:r.proc,vol:0,hours:0}); o.vol+=r.vol; o.hours+=r.hours; });
+  const procRows=Object.values(procAgg).map(o=>({...o, uph:o.hours?+(o.vol/o.hours).toFixed(1):0}));
+
+  const rf=days[0]||from||'', rt=days[days.length-1]||to||'';
+  return {kpi, daily, workers, process:procRows, defects:df, resolvedFrom:rf, resolvedTo:rt, days};
+}
+
+/* 取込完了フック本体（既存A-1版）：担当サイトを算出し、サマリ＋明細をアップロード
    logTarget を渡すと #cfLog 等へ、渡さなければ従来どおり画面ログ(logLine)へ */
 async function cfAutoUpload(logTarget){
   const base=cfBase(), token=cfToken();
