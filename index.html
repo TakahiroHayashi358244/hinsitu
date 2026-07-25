@@ -239,6 +239,28 @@ tr.out td{color:var(--mut);font-style:italic}
           閲覧端末は<b>起動時に自動で鮮度を確認</b>し、新しいスナップショットがあれば自動更新します（ボタン操作は不要）。
         </div>
         <div id="snapLog" class="note" style="margin-top:6px"></div>
+
+        <!-- [追加] Cloudflare(R2) 自動アップロード設定 -->
+        <div style="margin-top:12px;padding-top:10px;border-top:1px dashed var(--line)">
+          <div style="font-weight:600;font-size:13px;margin-bottom:6px">☁ Cloudflare 自動アップロード（任意）</div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">
+            <label style="font-size:12.5px;color:var(--mut)">担当事業所
+              <input type="text" id="cfSite" placeholder="HFO1" style="width:90px;margin-left:4px">
+            </label>
+            <label style="font-size:12.5px;color:var(--mut);flex:1;min-width:240px">Worker URL
+              <input type="text" id="cfBase" placeholder="https://quality-sync.xxxx.workers.dev" style="width:calc(100% - 80px);margin-left:4px">
+            </label>
+            <label style="font-size:12.5px;color:var(--mut);flex:1;min-width:200px">書込トークン（管理端末のみ）
+              <input type="password" id="cfToken" placeholder="Bearer トークン" style="width:calc(100% - 160px);margin-left:4px">
+            </label>
+            <button class="btn gho" id="btnCfTest">接続テスト</button>
+          </div>
+          <div class="note" style="margin-top:6px">
+            設定すると<b>取込完了時に自動でクラウドへ送信</b>されます（サマリは恒久保存、明細は12週で自動削除）。<br>
+            <b>閲覧端末はトークン空欄でOK</b>（送信しません）。担当事業所ごとにデータが振り分けられます。
+          </div>
+          <div id="cfLog" class="note" style="margin-top:6px"></div>
+        </div>
       </div>
     </div>
 
@@ -395,7 +417,23 @@ const DATASETS=[
 const DS=Object.fromEntries(DATASETS.map(d=>[d.id,d]));
 
 /* ---------- 対象サイト(取込時フィルタ) ---------- */
-let SITE_FILTER='HFO1';   // '' で全サイト取込
+let SITE_FILTER='HFO1';   // '' で全サイト取込（下の CF設定で端末ごとに上書きされる）
+
+/* =========================================================
+   [追加] Cloudflare 連携 設定（端末ごとに localStorage 保持）
+   - CF_SITE   : この端末の担当事業所コード（例 HFO1 / HFY2 …）
+   - CF_BASE   : Worker のURL（例 https://quality-sync.xxxx.workers.dev）
+   - CF_TOKEN  : 書込トークン（管理端末のみ設定。閲覧端末は空でよい）
+   ========================================================= */
+const LS_CF_SITE='cf_site', LS_CF_BASE='cf_base', LS_CF_TOKEN='cf_token';
+function cfSite(){  try{ return localStorage.getItem(LS_CF_SITE)||'HFO1'; }catch(e){ return 'HFO1'; } }
+function cfBase(){  try{ return (localStorage.getItem(LS_CF_BASE)||'').replace(/\/+$/,''); }catch(e){ return ''; } }
+function cfToken(){ try{ return localStorage.getItem(LS_CF_TOKEN)||''; }catch(e){ return ''; } }
+function cfSetSite(v){ try{ localStorage.setItem(LS_CF_SITE, (v||'').trim()); }catch(e){} SITE_FILTER=cfSite(); }
+function cfSetBase(v){ try{ localStorage.setItem(LS_CF_BASE, (v||'').trim()); }catch(e){} }
+function cfSetToken(v){ try{ localStorage.setItem(LS_CF_TOKEN, (v||'').trim()); }catch(e){} }
+// 起動時、担当サイト設定があれば取込フィルタをそれに合わせる
+SITE_FILTER=cfSite();
 /* ---------- 必要ZIP(日次取込チェックリスト) ---------- */
 const REQUIRED_FEEDS=[
   {ds:'jisseki',     label:'実績データ(OpsUnits)', zip:'Fw__OpsUnits_YYYYMMDD.zip',      role:'分母', must:true},
@@ -774,6 +812,8 @@ async function handleFiles(fileList){
   await reloadFR();
   await reloadPPR();
   await refreshState();
+  // [追加] 取込完了後、Cloudflareへ自動アップロード（設定済み端末のみ動作）
+  await cfAutoUpload();
   toast('取り込み完了');
 }
 async function reloadFR(){ if(db) S.fr=await getAllFR(); }
@@ -1367,6 +1407,99 @@ async function buildSnapshot(){
   for(const S of SYNC_STORES) snap[S.sheet]=await readStore(S.store);
   const counts=SYNC_STORES.map(S=>S.sheet+':'+snap[S.sheet].length).join(' / ');
   return {snap, counts};
+}
+
+/* =========================================================
+   [追加] Cloudflare(R2) への自動アップロード
+   - 取込完了時に handleFiles() から呼ばれる
+   - computeQuality() の出力から日次サマリ(site/worker)を整形して POST
+   - 明細スナップショットを gzip して PUT（12週で自動削除される層）
+   - トークン未設定・URL未設定なら静かにスキップ（閲覧端末では動かない）
+   ========================================================= */
+
+// ISO週キー（buildSnapshotの日付 → 2026-W27 形式）
+function isoWeekKey(d){
+  const dt=(d instanceof Date)?new Date(d):new Date();
+  const t=new Date(Date.UTC(dt.getFullYear(),dt.getMonth(),dt.getDate()));
+  const day=t.getUTCDay()||7; t.setUTCDate(t.getUTCDate()+4-day);
+  const ys=new Date(Date.UTC(t.getUTCFullYear(),0,1));
+  const wk=Math.ceil((((t-ys)/86400000)+1)/7);
+  return t.getUTCFullYear()+'-W'+String(wk).padStart(2,'0');
+}
+
+// computeQuality の戻り(rep) → site-daily 行配列
+function toSiteDaily(rep, site){
+  return (rep.daily||[]).map(x=>({
+    d:x.date, site,
+    stowU:x.su, rcvU:x.ru, allU:x.tu, ppl:x.ppl,
+    stowDef:x.sq, stowDpmo:x.dpmo, sh:x.sh, ov:x.ov,
+    pickMissCnt:x.pmCnt, pickMissU:x.pmUnit, pickU:x.pickUnits,
+    pickMissDpmo:x.workDpmo, shelfU:x.mfUnit, shelfDpmo:x.shelfDpmo
+  }));
+}
+// computeQuality の戻り(rep) → worker-daily 行配列
+// dailyは日別・workersは期間合計なので、作業者別“日次”は期間合計を1行(resolvedTo基準)で残す。
+// ※ 日ごとの作業者内訳が必要になったら computeQuality を日ループで呼ぶ拡張に差し替え可能。
+function toWorkerDaily(rep, site){
+  const d=rep.resolvedTo||rep.resolvedFrom||'';
+  const rows=[];
+  (rep.workers||[]).forEach(w=>{
+    if(!(w.su||w.stowCnt||w.pickCnt)) return;
+    rows.push({d, site, acct:w.アカウント, name:w.氏名||w.アカウント,
+      shift:w.時間帯||'', stowU:w.su, stowDef:w.stowQ, stowCnt:w.stowCnt,
+      dpmo:w.dpmo, pickMiss:w.pickCnt});
+  });
+  return rows;
+}
+
+async function cfPostSummary(site, siteDaily, workerDaily){
+  const base=cfBase(), token=cfToken();
+  if(!base || !token) return {skipped:true};
+  const res=await fetch(base+'/summary?site='+encodeURIComponent(site),{
+    method:'POST',
+    headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},
+    body:JSON.stringify({siteDaily, workerDaily})
+  });
+  if(!res.ok) throw new Error('summary POST '+res.status+' '+(await res.text()).slice(0,120));
+  return res.json();
+}
+
+async function cfPutRaw(site, weekKey, snapObj){
+  const base=cfBase(), token=cfToken();
+  if(!base || !token) return {skipped:true};
+  const raw=new TextEncoder().encode(JSON.stringify(snapObj));
+  const gz=await gzip(raw);
+  const res=await fetch(base+'/raw?site='+encodeURIComponent(site)+'&week='+encodeURIComponent(weekKey),{
+    method:'PUT',
+    headers:{'Authorization':'Bearer '+token,'Content-Type':'application/gzip'},
+    body:gz
+  });
+  if(!res.ok) throw new Error('raw PUT '+res.status+' '+(await res.text()).slice(0,120));
+  return res.json();
+}
+
+/* 取込完了フック本体：担当サイトを算出し、サマリ＋明細をアップロード */
+async function cfAutoUpload(){
+  const base=cfBase(), token=cfToken();
+  if(!base || !token) return; // 閲覧端末・未設定端末は何もしない
+  const site=cfSite();
+  try{
+    // 1) 集計（全期間）— computeQuality は site 指定で当該事業所のみ集計
+    const rep=await computeQuality(site, '', '', null);
+    const siteDaily=toSiteDaily(rep, site);
+    const workerDaily=toWorkerDaily(rep, site);
+    if(siteDaily.length || workerDaily.length){
+      const r=await cfPostSummary(site, siteDaily, workerDaily);
+      if(!r.skipped) logLine('☁ サマリ送信 '+site+'：日別'+siteDaily.length+'行 / 作業者'+workerDaily.length+'行','ok');
+    }
+    // 2) 明細スナップショット（12週保持層）— 週キーは最新実績日基準
+    const wk=isoWeekKey(rep.resolvedTo? new Date(rep.resolvedTo): new Date());
+    const {snap}=await buildSnapshot();
+    const r2=await cfPutRaw(site, wk, snap);
+    if(!r2.skipped) logLine('☁ 明細送信 '+site+'/'+wk+'（'+((r2.bytes||0)/1024).toFixed(0)+'KB）','ok');
+  }catch(e){
+    logLine('☁ クラウド送信スキップ：'+e.message,'wn');
+  }
 }
 
 /* 管理端末：スナップショットを書き出す */
@@ -2845,6 +2978,33 @@ async function init(){
   $('#btnSnapIn').onclick=()=>pullSnapshot(false);
   $('#btnSnapOut').onclick=exportSnapshot;
   $('#snapFile').addEventListener('change',async e=>{ if(e.target.files[0]) await importSnapshotFile(e.target.files[0]); e.target.value=''; });
+
+  // --- [追加] Cloudflare 設定の配線 ---
+  const cS=$('#cfSite'), cB=$('#cfBase'), cT=$('#cfToken');
+  if(cS&&cB&&cT){
+    cS.value=cfSite(); cB.value=cfBase(); cT.value=cfToken();
+    cS.onchange=()=>{ cfSetSite(cS.value); toast('担当事業所: '+cfSite()); };
+    cB.onchange=()=>cfSetBase(cB.value);
+    cT.onchange=()=>cfSetToken(cT.value);
+    const btnT=$('#btnCfTest');
+    if(btnT) btnT.onclick=async()=>{
+      cfSetSite(cS.value); cfSetBase(cB.value); cfSetToken(cT.value);
+      const base=cfBase();
+      if(!base){ syncLog('✕ Worker URL を入力してください','er','#cfLog'); return; }
+      try{
+        const r=await fetch(base+'/',{cache:'no-store'});
+        const j=await r.json();
+        if(j&&j.ok){
+          syncLog('✓ 接続OK（'+(j.service||'worker')+'）担当: '+cfSite()+(cfToken()?' / 書込可':' / 閲覧のみ'),'ok','#cfLog');
+          // サマリの現状件数も確認
+          const s=await fetch(base+'/summary?site='+encodeURIComponent(cfSite())+'&kind=site').then(x=>x.json()).catch(()=>null);
+          if(s&&s.ok) syncLog('　既存サマリ: 日別'+ (s.rows?s.rows.length:0) +'行','dim','#cfLog');
+        }else{
+          syncLog('△ 応答はあるが想定外：'+JSON.stringify(j).slice(0,120),'wn','#cfLog');
+        }
+      }catch(e){ syncLog('✕ 接続失敗：'+e.message,'er','#cfLog'); }
+    };
+  }
 
   $('#btnTest').onclick=gasTest;
   $('#btnPush').onclick=gasPush;
