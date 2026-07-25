@@ -852,6 +852,13 @@ async function processZip(buf, depth){
   }
 }
 async function handleFiles(fileList){
+  // 案1ガード: 担当外の事業所を表示中は取込不可（データ混在防止）
+  const viewing=VIEW_SITE||CUR_SITE;
+  if(!canWrite(viewing)){
+    toast('閲覧のみの事業所です（'+viewing+'）。取込は担当事業所（'+CUR_SITE+'）を表示中のみ可能です。');
+    logLine('✕ 取込ブロック：'+viewing+' は閲覧のみ。担当事業所 '+CUR_SITE+' に切り替えてください。','er');
+    return;
+  }
   for(const file of fileList){
     const lower=file.name.toLowerCase();
     try{
@@ -1398,6 +1405,40 @@ async function cfPullLatest(){
     if(localCount>0) toast('クラウドの最新データに更新しました');
     return 'applied';
   }catch(e){
+    return 'fail';
+  }
+}
+
+/* 全ストアを空にする（事業所切替時に前のデータを残さない） */
+async function clearAllData(){
+  for(const S of SYNC_STORES){ await clearStore(S.store); }
+  cfSetApplied('');            // 鮮度記録もリセット
+  await loadMaster(); await reloadFR(); await reloadPPR(); await refreshState();
+}
+
+/* 指定事業所のクラウドデータを読み込む。無ければ空状態にする。
+   戻り値: 'loaded'（データあり）/ 'empty'（データ無しで空にした）/ 'fail'（通信失敗） */
+async function loadSiteData(site){
+  const base=cfBase();
+  if(!base || !site) return 'fail';
+  try{
+    const meta=await fetch(base+'/raw/latest/meta?site='+encodeURIComponent(site)+'&t='+Date.now(),{cache:'no-store'})
+      .then(r=>r.ok?r.json():null).catch(()=>null);
+    if(!meta || !meta.ok || !meta.latest){
+      // クラウドに該当事業所データ無し → 空の取込待ち状態にする
+      await clearAllData();
+      logLine('☁ '+site+' のクラウドデータはまだありません。空の状態です（取込・アップロードで作成されます）。','wn');
+      return 'empty';
+    }
+    const res=await fetch(base+'/raw/latest?site='+encodeURIComponent(site)+'&t='+Date.now(),{cache:'no-store'});
+    if(!res.ok){ return 'fail'; }
+    const buf=new Uint8Array(await res.arrayBuffer());
+    await applySnapshot(buf, site+' クラウド最新（'+(meta.latest.week||'')+'）');
+    cfSetApplied(meta.latest.uploadedAt||'');
+    logLine('☁ '+site+' のデータを読み込みました（'+fmtWhen(meta.latest.uploadedAt||'')+'時点 / '+(meta.latest.week||'')+'）','ok');
+    return 'loaded';
+  }catch(e){
+    logLine('☁ '+site+' の読み込みに失敗：'+e.message,'er');
     return 'fail';
   }
 }
@@ -2014,6 +2055,15 @@ function buildDash(){
 
   // フィルタバー(品質サイト/期間)
   const fb=el('div','filterbar');
+  // ★表示事業所スイッチャ（クラウドから該当事業所を読み込んで切替。案1: 担当のみ書込可）
+  const viewWrap=el('div'); viewWrap.innerHTML='<label>表示事業所</label>';
+  const viewSel=el('select'); viewSel.id='viewSite';
+  SITE_LIST.forEach(s=>{ const o=el('option'); o.value=s; o.textContent=s+(s===CUR_SITE?'（担当）':''); viewSel.appendChild(o); });
+  viewSel.value=CUR_SITE;
+  viewSel.onchange=()=>switchViewSite(viewSel.value);
+  viewWrap.appendChild(viewSel);
+  const permWrap=el('div','periodinfo'); permWrap.id='viewPerm'; permWrap.style.cssText='display:flex;flex-direction:column;justify-content:center;font-size:12px;padding:0 4px;font-weight:700';
+  fb.appendChild(viewWrap); fb.appendChild(permWrap);
   const siteWrap=el('div'); siteWrap.innerHTML='<label>品質サイト</label>'; const siteSel=el('select'); siteSel.id='qSite'; siteWrap.appendChild(siteSel);
   const fWrap=el('div'); fWrap.innerHTML='<label>開始(任意)</label>'; const fIn=el('input'); fIn.type='date'; fIn.id='qFrom'; fIn.onchange=()=>recalcQuality(); fWrap.appendChild(fIn);
   const tWrap=el('div'); tWrap.innerHTML='<label>終了(任意)</label>'; const tIn=el('input'); tIn.type='date'; tIn.id='qTo'; tIn.onchange=()=>recalcQuality(); tWrap.appendChild(tIn);
@@ -2066,6 +2116,47 @@ function buildDash(){
 
   // サイト一覧をロードして初回品質計算
   populateSitesThenCompute(siteSel);
+  updateWritePerm();
+}
+
+let VIEW_SITE='';   // 現在ダッシュボードで表示中の事業所（担当=CUR_SITE とは別に切替可能）
+
+// 表示事業所を切り替え：その事業所のクラウドデータを読み込み、再計算。書込可否も更新。
+async function switchViewSite(site){
+  if(!site) return;
+  if(site===VIEW_SITE) return;
+  const prev=VIEW_SITE;
+  toast(site+' を読み込み中…');
+  const r=await loadSiteData(site);
+  if(r==='fail'){
+    toast(site+' の読み込みに失敗');
+    const vs=$('#viewSite'); if(vs) vs.value=prev||CUR_SITE;
+    return;
+  }
+  VIEW_SITE=site;
+  // 品質サイトセレクタも合わせる（IndexedDBには当該事業所のみ入っている）
+  await refreshState();
+  const qs=$('#qSite');
+  if(qs){ // populateSitesThenCompute 相当を再実行
+    await populateSitesThenCompute(qs);
+  }
+  updateWritePerm();
+}
+
+// 表示中の事業所が担当(CUR_SITE)かどうかで、取込・アップロードUIを出し分け
+function updateWritePerm(){
+  const viewing=VIEW_SITE||CUR_SITE;
+  const writable=canWrite(viewing);   // 管理者 or 担当事業所
+  const perm=$('#viewPerm');
+  if(perm){
+    perm.textContent=writable?'取込・アップロード可':'閲覧のみ';
+    perm.style.color=writable?'#065f46':'#b45309';
+  }
+  // 取込ドロップゾーン
+  const drop=$('#drop'); if(drop){ drop.style.opacity=writable?'':'0.45'; drop.style.pointerEvents=writable?'':'none'; }
+  const file=$('#file'); if(file){ file.disabled=!writable; }
+  // 「今すぐアップロード」ボタン
+  const bp=$('#btnCfPush'); if(bp){ bp.disabled=!writable; }
 }
 
 async function populateSitesThenCompute(siteSel){
@@ -2841,26 +2932,17 @@ async function init(){
   await reloadFR();
   await reloadPPR();
 
-  // ★起動時のデータ同期。読込元は「データ読込元」トグルで選べる（既定=クラウド優先）
-  //   auto  : クラウドを試す → 未設定/最新/失敗ならスナップショットへフォールバック
-  //   cloud : クラウドのみ（スナップショットは使わない）＝ 検証・完全一本化用
-  //   snap  : スナップショットのみ（従来動作）
-  const mode=cfMode();
-  const cfOK=r=>(r==='applied'||r==='fresh'||r==='admin');  // 成功扱い（適用/最新/管理端末）
-  if(mode==='snap'){
-    logLine('[読込] スナップショットのみ（従来動作）','dim');
-    await autoSyncSnapshot();
-  } else if(mode==='cloud'){
-    logLine('[読込] クラウドのみ（スナップショット不使用）','dim');
-    const r=await cfPullLatest();
-    if(!cfOK(r)){
-      const why={unset:'URL/担当事業所が未設定',nodata:'クラウドに該当データなし',fail:'接続/取得に失敗'}[r]||r;
-      logLine('[読込] クラウドから読み込めませんでした（'+why+'）。スナップショットへはフォールバックしません。','wn');
-    }
-  } else {
-    logLine('[読込] クラウド優先','dim');
-    const r=await cfPullLatest();
-    if(!cfOK(r)){ logLine('[読込] クラウド未適用（'+r+'）のためスナップショットにフォールバック','dim'); await autoSyncSnapshot(); }
+  // ★入場時のデータ切替（案1一本化）:
+  //   ゲートで選んだ事業所(cfSite)のクラウドデータを読み込む。
+  //   無ければ空の取込待ち状態にする（前の事業所の残存データを見せない）。
+  //   これにより「TPY1で入ったのにHFO1が残る」問題を防ぐ。
+  const site=cfSite();
+  logLine('[読込] 事業所 '+site+' のデータをクラウドから取得します','dim');
+  const r=await loadSiteData(site);
+  if(r==='fail'){
+    logLine('[読込] クラウド取得に失敗しました。ネットワーク/URLを確認してください。','er');
+  } else if(r==='empty'){
+    logLine('[読込] '+site+' はデータ未登録です。CSVを取込→アップロードで作成できます。','wn');
   }
   await reloadPPR();
   await refreshState();
@@ -2968,6 +3050,7 @@ function renderGate(){
 }
 async function enterAsSite(site){
   cfSetSite(site);
+  VIEW_SITE=site;
   IS_ADMIN=false;
   $('#siteGate').style.display='none';
   $('#mainWrap').style.display='';
@@ -2980,6 +3063,7 @@ async function enterAsAdmin(){
   // 管理者は事業所も選ぶ（どの事業所として作業するか）。既定は先頭。
   const site=SITE_LIST[0]||'HFO1';
   cfSetSite(site);
+  VIEW_SITE=site;
   IS_ADMIN=true;
   $('#siteGate').style.display='none';
   $('#mainWrap').style.display='';
