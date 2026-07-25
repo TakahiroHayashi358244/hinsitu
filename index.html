@@ -232,7 +232,7 @@ tr.out td{color:var(--mut);font-style:italic}
     </div>
     <div class="log" id="log"></div>
 
-    <div class="card" id="snapCard" style="margin-top:14px;border:1px solid var(--line);border-radius:12px;background:var(--panel)">
+    <div class="card admin-only" id="snapCard" style="display:none;margin-top:14px;border:1px solid var(--line);border-radius:12px;background:var(--panel)">
       <div style="padding:11px 15px;border-bottom:1px solid var(--line);font-weight:700;display:flex;justify-content:space-between;align-items:center;gap:10px">
         <span>最新データの共有（スナップショット）</span>
         <span id="snapBadge" style="font-size:12px;color:var(--mut);font-weight:400"></span>
@@ -284,6 +284,45 @@ tr.out td{color:var(--mut);font-style:italic}
             <b>閲覧端末はトークン空欄でOK</b>（送信しません）。担当事業所ごとにデータが振り分けられます。
           </div>
           <div id="cfLog" class="note" style="margin-top:6px"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========== 管理者パネル（管理者モードのみ表示）========== -->
+    <div class="card admin-only" id="adminCard" style="display:none;margin-top:14px;border:1px solid #b45309;border-radius:12px;background:#fffbeb">
+      <div style="padding:11px 15px;border-bottom:1px solid #f0d38a;font-weight:700;color:#92400e">🔑 管理者パネル</div>
+      <div style="padding:14px 16px">
+        <!-- 事業所パスコード -->
+        <div style="margin-bottom:16px">
+          <div style="font-weight:600;font-size:13px;margin-bottom:6px">この端末の事業所パスコード</div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <input type="password" id="admPass" placeholder="Worker に登録したパスコード" style="flex:1;min-width:220px;padding:8px 10px;border:1px solid #cfd8e6;border-radius:8px;font-size:12.5px">
+            <button class="btn" id="admPassSave">保存</button>
+            <span id="admPassMsg" style="font-size:12px;color:#5a6b86"></span>
+          </div>
+          <div class="note" style="margin-top:4px">アップロード時に送信されます。Worker の <code>SITE_PASSCODE</code> と一致が必要（登録はターミナル）。</div>
+        </div>
+        <!-- 共通トークン上書き（保守用・通常は埋め込み値を使用） -->
+        <div style="margin-bottom:16px">
+          <div style="font-weight:600;font-size:13px;margin-bottom:6px">共通トークン（保守用の上書き・通常は空でOK）</div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <input type="password" id="admToken" placeholder="埋め込み値を使う場合は空欄" style="flex:1;min-width:220px;padding:8px 10px;border:1px solid #cfd8e6;border-radius:8px;font-size:12.5px">
+            <button class="btn" id="admTokenSave">保存</button>
+            <button class="btn gho" id="admTokenClear">クリア</button>
+            <span id="admTokenMsg" style="font-size:12px;color:#5a6b86"></span>
+          </div>
+        </div>
+        <!-- 事業所リスト管理 -->
+        <div>
+          <div style="font-weight:600;font-size:13px;margin-bottom:6px">事業所リスト（全端末で共有）</div>
+          <div id="admSiteList" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px"></div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <input type="text" id="admNewSite" placeholder="新規事業所コード（例 TPX9）" style="min-width:180px;padding:8px 10px;border:1px solid #cfd8e6;border-radius:8px;font-size:12.5px">
+            <button class="btn" id="admSiteAdd">＋ 追加</button>
+            <button class="btn gho" id="admSiteSave">クラウドに保存（全端末反映）</button>
+            <span id="admSiteMsg" style="font-size:12px;color:#5a6b86"></span>
+          </div>
+          <div class="note" style="margin-top:4px">「クラウドに保存」で全端末の選択ゲートに反映されます（トークン＋パスコード必須）。</div>
         </div>
       </div>
     </div>
@@ -2951,8 +2990,55 @@ function applySiteChrome(){
   const chip=$('#siteChip');
   if(chip) chip.textContent=(IS_ADMIN?'管理者 / ':'')+'事業所: '+cfSite()+(IS_ADMIN?'（フルアクセス）':'（取込・アップロード可）');
   const t=$('#mainTitle'); if(t) t.textContent=cfSite()+' 品質×生産性 統合ダッシュボード';
-  // 閲覧のみ（自分の事業所でない）状況は buildDash 側のセレクタ切替で発生。取込ドロップは自分の事業所選択中のみ有効。
-  // ここでは常に「選択事業所＝取込対象」なので取込UIは表示のままでよい。
+  // 管理者限定セクション（スナップショット/Cloudflare設定/管理者パネル）の表示制御
+  document.querySelectorAll('.admin-only').forEach(elm=>{ elm.style.display = IS_ADMIN ? '' : 'none'; });
+  if(IS_ADMIN) wireAdminPanel();
+}
+
+// 管理者パネルの配線（1回だけ）
+let _adminWired=false;
+function wireAdminPanel(){
+  if(_adminWired) return; _adminWired=true;
+  // パスコード
+  const ap=$('#admPass'); if(ap){ ap.value=cfPass();
+    $('#admPassSave').onclick=()=>{ cfSetPass(ap.value); $('#admPassMsg').textContent='保存しました'; setTimeout(()=>$('#admPassMsg').textContent='',1500); };
+  }
+  // トークン上書き
+  const at=$('#admToken'); if(at){ at.value=(localStorage.getItem(LS_CF_TOKEN)||'');
+    $('#admTokenSave').onclick=()=>{ cfSetToken(at.value); $('#admTokenMsg').textContent='保存（上書き）しました'; setTimeout(()=>$('#admTokenMsg').textContent='',1500); };
+    $('#admTokenClear').onclick=()=>{ try{localStorage.removeItem(LS_CF_TOKEN);}catch(e){} at.value=''; $('#admTokenMsg').textContent='クリア（埋め込み値を使用）'; setTimeout(()=>$('#admTokenMsg').textContent='',1500); };
+  }
+  // 事業所リスト
+  renderAdminSites();
+  $('#admSiteAdd').onclick=()=>{
+    const v=($('#admNewSite').value||'').trim().toUpperCase();
+    if(!/^[A-Z0-9_-]{2,12}$/.test(v)){ $('#admSiteMsg').textContent='コードが不正（英数2〜12字）'; return; }
+    if(!SITE_LIST.includes(v)) SITE_LIST.push(v);
+    $('#admNewSite').value=''; $('#admSiteMsg').textContent='追加（未保存）'; renderAdminSites();
+  };
+  $('#admSiteSave').onclick=async()=>{
+    try{
+      const res=await fetch(cfBase()+'/config/sites',{
+        method:'POST',
+        headers:{'Content-Type':'application/json','Authorization':'Bearer '+cfToken(),'X-Site-Pass':cfPass()},
+        body:JSON.stringify({sites:SITE_LIST})
+      });
+      const j=await res.json();
+      if(!res.ok||!j.ok) throw new Error(j.error||('HTTP '+res.status));
+      SITE_LIST=j.sites; renderAdminSites();
+      $('#admSiteMsg').textContent='クラウドに保存しました（全端末反映）';
+    }catch(e){ $('#admSiteMsg').textContent='保存失敗: '+e.message; }
+  };
+}
+function renderAdminSites(){
+  const box=$('#admSiteList'); if(!box) return; box.innerHTML='';
+  SITE_LIST.forEach(s=>{
+    const tag=el('span'); tag.style.cssText='display:inline-flex;align-items:center;gap:4px;padding:4px 8px;background:#fff;border:1px solid #e2e9f0;border-radius:6px;font-size:12.5px';
+    tag.textContent=s;
+    const x=el('button','',' ×'); x.style.cssText='border:none;background:none;color:#b91c1c;cursor:pointer;font-size:13px';
+    x.onclick=()=>{ SITE_LIST=SITE_LIST.filter(y=>y!==s); renderAdminSites(); $('#admSiteMsg').textContent='削除（未保存）'; };
+    tag.appendChild(x); box.appendChild(tag);
+  });
 }
 
 async function boot(){
