@@ -254,6 +254,7 @@ tr.out td{color:var(--mut);font-style:italic}
               <input type="password" id="cfToken" placeholder="Bearer トークン" style="width:calc(100% - 160px);margin-left:4px">
             </label>
             <button class="btn gho" id="btnCfTest">接続テスト</button>
+            <button class="btn" id="btnCfPush">今すぐアップロード</button>
           </div>
           <div class="note" style="margin-top:6px">
             設定すると<b>取込完了時に自動でクラウドへ送信</b>されます（サマリは恒久保存、明細は12週で自動削除）。<br>
@@ -1478,11 +1479,13 @@ async function cfPutRaw(site, weekKey, snapObj){
   return res.json();
 }
 
-/* 取込完了フック本体：担当サイトを算出し、サマリ＋明細をアップロード */
-async function cfAutoUpload(){
+/* 取込完了フック本体：担当サイトを算出し、サマリ＋明細をアップロード
+   logTarget を渡すと #cfLog 等へ、渡さなければ従来どおり画面ログ(logLine)へ */
+async function cfAutoUpload(logTarget){
   const base=cfBase(), token=cfToken();
   if(!base || !token) return; // 閲覧端末・未設定端末は何もしない
   const site=cfSite();
+  const say=(msg,cls)=>{ if(logTarget) syncLog(msg,cls,logTarget); else logLine(msg,cls); };
   try{
     // 1) 集計（全期間）— computeQuality は site 指定で当該事業所のみ集計
     const rep=await computeQuality(site, '', '', null);
@@ -1490,15 +1493,18 @@ async function cfAutoUpload(){
     const workerDaily=toWorkerDaily(rep, site);
     if(siteDaily.length || workerDaily.length){
       const r=await cfPostSummary(site, siteDaily, workerDaily);
-      if(!r.skipped) logLine('☁ サマリ送信 '+site+'：日別'+siteDaily.length+'行 / 作業者'+workerDaily.length+'行','ok');
+      if(!r.skipped) say('☁ サマリ送信 '+site+'：日別'+siteDaily.length+'行 / 作業者'+workerDaily.length+'行','ok');
+    } else {
+      say('☁ 送信対象のサマリがありません（集計結果が空）','wn');
     }
     // 2) 明細スナップショット（12週保持層）— 週キーは最新実績日基準
     const wk=isoWeekKey(rep.resolvedTo? new Date(rep.resolvedTo): new Date());
     const {snap}=await buildSnapshot();
     const r2=await cfPutRaw(site, wk, snap);
-    if(!r2.skipped) logLine('☁ 明細送信 '+site+'/'+wk+'（'+((r2.bytes||0)/1024).toFixed(0)+'KB）','ok');
+    if(!r2.skipped) say('☁ 明細送信 '+site+'/'+wk+'（'+((r2.bytes||0)/1024).toFixed(0)+'KB）','ok');
   }catch(e){
-    logLine('☁ クラウド送信スキップ：'+e.message,'wn');
+    say('☁ クラウド送信スキップ：'+e.message,'wn');
+    if(logTarget) throw e; // 手動アップロード時は呼び出し側へ通知
   }
 }
 
@@ -3003,6 +3009,23 @@ async function init(){
           syncLog('△ 応答はあるが想定外：'+JSON.stringify(j).slice(0,120),'wn','#cfLog');
         }
       }catch(e){ syncLog('✕ 接続失敗：'+e.message,'er','#cfLog'); }
+    };
+    const btnP=$('#btnCfPush');
+    if(btnP) btnP.onclick=async()=>{
+      cfSetSite(cS.value); cfSetBase(cB.value); cfSetToken(cT.value);
+      if(!cfBase()){ syncLog('✕ Worker URL を入力してください','er','#cfLog'); return; }
+      if(!cfToken()){ syncLog('✕ 書込トークンが未設定です（閲覧端末は送信できません）','er','#cfLog'); return; }
+      btnP.disabled=true;
+      syncLog('☁ アップロード開始…（現在のデータを集計して送信します）','dim','#cfLog');
+      try{
+        await cfAutoUpload('#cfLog');
+        syncLog('☁ アップロード完了','ok','#cfLog');
+        // 送信後、クラウド側の件数を再確認
+        const s=await fetch(cfBase()+'/summary?site='+encodeURIComponent(cfSite())+'&kind=site').then(x=>x.json()).catch(()=>null);
+        if(s&&s.ok) syncLog('　クラウド側サマリ: 日別'+(s.rows?s.rows.length:0)+'行','dim','#cfLog');
+        toast('クラウドへアップロードしました');
+      }catch(e){ syncLog('✕ アップロード失敗：'+e.message,'er','#cfLog'); }
+      btnP.disabled=false;
     };
   }
 
