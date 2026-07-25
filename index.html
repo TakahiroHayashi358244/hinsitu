@@ -1508,6 +1508,54 @@ async function cfAutoUpload(logTarget){
   }
 }
 
+/* =========================================================
+   [追加] 閲覧端末：Cloudflare から最新明細(raw)を取得して適用
+   - snapshot.json.gz と同一形式なので applySnapshot() をそのまま再利用
+   - 鮮度は Worker が返す X-Raw-Uploaded（アップロード時刻）で判定
+   - 管理端末モードなら自動適用しない（自分の作業を上書きしない）
+   - 戻り値 true = 適用した / false = 適用しなかった（未設定・最新・失敗）
+   ========================================================= */
+const LS_CF_APPLIED='cf_raw_applied';  // 最後に適用したクラウドrawのアップロード時刻
+function cfAppliedAt(){ try{ return localStorage.getItem(LS_CF_APPLIED)||''; }catch(e){ return ''; } }
+function cfSetApplied(v){ try{ localStorage.setItem(LS_CF_APPLIED, v||''); }catch(e){} }
+
+async function cfPullLatest(){
+  const base=cfBase(), site=cfSite();
+  if(!base || !site) return false;           // URL未設定なら従来のスナップショット経路に任せる
+  try{
+    const localCount=await countStore(QSTORE);
+    // 管理端末は自動適用しない（取込データを勝手に置換されると困る）
+    if(isAdminMode() && localCount>0){
+      $('#snapBadge').textContent='管理端末モード（自動更新オフ）';
+      return false;
+    }
+    // まずメタで鮮度確認（軽い）
+    const meta=await fetch(base+'/raw/latest/meta?site='+encodeURIComponent(site)+'&t='+Date.now(),{cache:'no-store'})
+      .then(r=>r.ok?r.json():null).catch(()=>null);
+    if(!meta || !meta.ok || !meta.latest){ return false; }  // クラウドにrawが無ければ従来経路へ
+    const remoteAt=meta.latest.uploadedAt||'';
+    const localAt=cfAppliedAt();
+
+    if(localCount>0 && remoteAt && remoteAt<=localAt){
+      $('#snapBadge').textContent='最新です（クラウド '+fmtWhen(localAt||remoteAt)+'）';
+      return false;                            // 既に最新
+    }
+    // 本体取得して適用
+    const res=await fetch(base+'/raw/latest?site='+encodeURIComponent(site)+'&t='+Date.now(),{cache:'no-store'});
+    if(!res.ok) return false;
+    const buf=new Uint8Array(await res.arrayBuffer());
+    await applySnapshot(buf, 'クラウド最新（'+(meta.latest.week||'')+'）');
+    cfSetApplied(remoteAt);
+    logLine('☁ クラウドから最新データを読み込みました（'+fmtWhen(remoteAt)+'時点 / '+(meta.latest.week||'')+'）','ok');
+    $('#snapBadge').textContent='クラウド最新適用済み（'+fmtWhen(remoteAt)+'）';
+    if(localCount>0) toast('クラウドの最新データに更新しました');
+    return true;
+  }catch(e){
+    // 失敗しても従来のスナップショット経路にフォールバックできるよう false を返す
+    return false;
+  }
+}
+
 /* 管理端末：スナップショットを書き出す */
 async function exportSnapshot(){
   const btn=$('#btnSnapOut'); btn.disabled=true;
@@ -2947,11 +2995,14 @@ async function init(){
   await reloadFR();
   await reloadPPR();
 
-  // ★起動時にスナップショットの鮮度を確認し、新しければ自動更新する。
-  //   - 初回(データ空)      : 無条件に適用
-  //   - 2回目以降           : スナップショットの作成日時が、前回適用したものより新しいときだけ適用
-  //   - 管理端末(自分で取込) : 「管理端末モード」がONなら自動適用しない（自分の作業を上書きしないため）
-  await autoSyncSnapshot();
+  // ★起動時のデータ同期。A-1一本化:
+  //   1) まず Cloudflare の最新明細(raw)を試す（設定済み端末）
+  //   2) Cloudflareが未設定/最新/失敗なら、従来のスナップショット(snapshot.json.gz)へフォールバック
+  //   - 管理端末モードONなら、どちらも自動適用しない（自分の取込を上書きしないため）
+  const cfApplied=await cfPullLatest();
+  if(!cfApplied){
+    await autoSyncSnapshot();
+  }
   await reloadPPR();
   await refreshState();
 
