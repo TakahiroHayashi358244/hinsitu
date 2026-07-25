@@ -1284,38 +1284,38 @@ function cfSetApplied(v){ try{ localStorage.setItem(LS_CF_APPLIED, v||''); }catc
 
 async function cfPullLatest(){
   const base=cfBase(), site=cfSite();
-  if(!base || !site) return false;           // URL未設定なら従来のスナップショット経路に任せる
+  if(!base || !site) return 'unset';         // URL未設定なら従来のスナップショット経路に任せる
   try{
     const localCount=await countStore(QSTORE);
     // 管理端末は自動適用しない（取込データを勝手に置換されると困る）
     if(isAdminMode() && localCount>0){
       $('#snapBadge').textContent='管理端末モード（自動更新オフ）';
-      return false;
+      return 'admin';
     }
     // まずメタで鮮度確認（軽い）
     const meta=await fetch(base+'/raw/latest/meta?site='+encodeURIComponent(site)+'&t='+Date.now(),{cache:'no-store'})
       .then(r=>r.ok?r.json():null).catch(()=>null);
-    if(!meta || !meta.ok || !meta.latest){ return false; }  // クラウドにrawが無ければ従来経路へ
+    if(!meta || !meta.ok || !meta.latest){ return 'nodata'; }  // クラウドにrawが無い
     const remoteAt=meta.latest.uploadedAt||'';
     const localAt=cfAppliedAt();
 
     if(localCount>0 && remoteAt && remoteAt<=localAt){
       $('#snapBadge').textContent='最新です（クラウド '+fmtWhen(localAt||remoteAt)+'）';
-      return false;                            // 既に最新
+      logLine('☁ クラウドは最新です（'+fmtWhen(localAt||remoteAt)+'時点 / '+(meta.latest.week||'')+'）。再読込は不要でした。','ok');
+      return 'fresh';                          // 既に最新（＝成功扱い）
     }
     // 本体取得して適用
     const res=await fetch(base+'/raw/latest?site='+encodeURIComponent(site)+'&t='+Date.now(),{cache:'no-store'});
-    if(!res.ok) return false;
+    if(!res.ok) return 'fail';
     const buf=new Uint8Array(await res.arrayBuffer());
     await applySnapshot(buf, 'クラウド最新（'+(meta.latest.week||'')+'）');
     cfSetApplied(remoteAt);
     logLine('☁ クラウドから最新データを読み込みました（'+fmtWhen(remoteAt)+'時点 / '+(meta.latest.week||'')+'）','ok');
     $('#snapBadge').textContent='クラウド最新適用済み（'+fmtWhen(remoteAt)+'）';
     if(localCount>0) toast('クラウドの最新データに更新しました');
-    return true;
+    return 'applied';
   }catch(e){
-    // 失敗しても従来のスナップショット経路にフォールバックできるよう false を返す
-    return false;
+    return 'fail';
   }
 }
 
@@ -2763,17 +2763,21 @@ async function init(){
   //   cloud : クラウドのみ（スナップショットは使わない）＝ 検証・完全一本化用
   //   snap  : スナップショットのみ（従来動作）
   const mode=cfMode();
+  const cfOK=r=>(r==='applied'||r==='fresh'||r==='admin');  // 成功扱い（適用/最新/管理端末）
   if(mode==='snap'){
     logLine('[読込] スナップショットのみ（従来動作）','dim');
     await autoSyncSnapshot();
   } else if(mode==='cloud'){
     logLine('[読込] クラウドのみ（スナップショット不使用）','dim');
-    const ok=await cfPullLatest();
-    if(!ok) logLine('[読込] クラウドから読み込めませんでした（設定/データ/接続を確認）。スナップショットへはフォールバックしません。','wn');
+    const r=await cfPullLatest();
+    if(!cfOK(r)){
+      const why={unset:'URL/担当事業所が未設定',nodata:'クラウドに該当データなし',fail:'接続/取得に失敗'}[r]||r;
+      logLine('[読込] クラウドから読み込めませんでした（'+why+'）。スナップショットへはフォールバックしません。','wn');
+    }
   } else {
     logLine('[読込] クラウド優先','dim');
-    const cfApplied=await cfPullLatest();
-    if(!cfApplied){ logLine('[読込] クラウド未適用のためスナップショットにフォールバック','dim'); await autoSyncSnapshot(); }
+    const r=await cfPullLatest();
+    if(!cfOK(r)){ logLine('[読込] クラウド未適用（'+r+'）のためスナップショットにフォールバック','dim'); await autoSyncSnapshot(); }
   }
   await reloadPPR();
   await refreshState();
