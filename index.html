@@ -188,14 +188,31 @@ tr.out td{color:var(--mut);font-style:italic}
 </style>
 </head>
 <body>
-<div class="wrap">
+
+<!-- ========== 事業所選択ゲート（起動時に必ず表示）========== -->
+<div id="siteGate" style="position:fixed;inset:0;z-index:9999;background:linear-gradient(160deg,#1f3a5f,#0d1b2e);display:flex;align-items:center;justify-content:center">
+  <div style="background:#fff;border-radius:16px;padding:32px 36px;max-width:620px;width:92%;box-shadow:0 20px 60px rgba(0,0,0,.4)">
+    <div style="font-size:22px;font-weight:700;color:#1f3a5f;margin-bottom:4px">事業所を選択してください</div>
+    <div style="font-size:13px;color:#5a6b86;margin-bottom:20px">選んだ事業所で <b>取込・アップロード</b> ができます。他の事業所は閲覧のみです。</div>
+    <div id="gateSites" style="display:flex;flex-wrap:wrap;gap:12px;margin-bottom:22px"></div>
+    <div style="border-top:1px dashed #d8dee5;padding-top:16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <button id="gateAdminBtn" class="btn gho" style="font-size:13px">管理者モード</button>
+      <span id="gateMsg" style="font-size:12.5px;color:#b91c1c"></span>
+    </div>
+  </div>
+</div>
+
+<div class="wrap" id="mainWrap" style="display:none">
 
   <div class="top">
     <div>
-      <div class="title">HFO1 品質×生産性 統合ダッシュボード</div>
+      <div class="title" id="mainTitle">品質×生産性 統合ダッシュボード</div>
       <div class="sub">DPMO（品質）と UPH（生産性）を1つのツールで。CSV / ZIP をドラッグ&ドロップ、ヘッダーで自動判別。<b>v29</b>：PPRを永続化。「PowerPoint出力」から資料作成ページへ（同一データを自動読込）。</div>
     </div>
-    <div class="badges" id="statusBadges"></div>
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
+      <div id="siteChip" style="font-size:13px;font-weight:700;padding:6px 14px;border-radius:999px;background:#1f3a5f;color:#fff"></div>
+      <div class="badges" id="statusBadges"></div>
+    </div>
   </div>
 
   <div id="ingest">
@@ -408,12 +425,39 @@ let SITE_FILTER='HFO1';   // '' で全サイト取込（下の CF設定で端末
    - CF_TOKEN  : 書込トークン（管理端末のみ設定。閲覧端末は空でよい）
    ========================================================= */
 const LS_CF_SITE='cf_site', LS_CF_BASE='cf_base', LS_CF_TOKEN='cf_token';
-function cfSite(){  try{ return localStorage.getItem(LS_CF_SITE)||'HFO1'; }catch(e){ return 'HFO1'; } }
-function cfBase(){  try{ return (localStorage.getItem(LS_CF_BASE)||'').replace(/\/+$/,''); }catch(e){ return ''; } }
-function cfToken(){ try{ return localStorage.getItem(LS_CF_TOKEN)||''; }catch(e){ return ''; } }
-function cfSetSite(v){ try{ localStorage.setItem(LS_CF_SITE, (v||'').trim()); }catch(e){} SITE_FILTER=cfSite(); }
+
+/* ===== 管理者が設定する埋め込み値（ここだけ手で書き換える）=====
+   CF_BASE_EMBED  : Worker URL（固定）
+   CF_TOKEN_EMBED : 共通トークン（ADMINトークンを貼る。※Publicリポジトリでは秘匿されない前提。
+                    本当の書込関門は Worker 側の事業所パスコード SITE_PASSCODE）
+   ADMIN_PW       : 管理者モードのパスワード
+   SITES_FALLBACK : クラウドの事業所リストが取れない時の初期候補 */
+const CF_BASE_EMBED  = "https://quality-sync.takahiro884.workers.dev";
+const CF_TOKEN_EMBED = "";   // ★ここにADMINトークンを貼る（例: "abcd1234..."）
+const ADMIN_PW       = "Gworker000";
+const SITES_FALLBACK = ["HFO1","TPY1","TPZ6","TPB2"];
+
+// 現在のセッション状態（このタブ内のみ。毎回ゲートで選び直す）
+let CUR_SITE='';        // 選択した事業所（＝取込・アップロード対象）
+let IS_ADMIN=false;     // 管理者モードか
+let SITE_LIST=SITES_FALLBACK.slice();
+
+// base/token は埋め込み優先。管理者が localStorage で上書きしていればそれを使う（保守用）
+function cfSite(){  return CUR_SITE||'HFO1'; }
+function cfBase(){  try{ return (localStorage.getItem(LS_CF_BASE)||CF_BASE_EMBED).replace(/\/+$/,''); }catch(e){ return CF_BASE_EMBED; } }
+function cfToken(){ try{ return localStorage.getItem(LS_CF_TOKEN)||CF_TOKEN_EMBED; }catch(e){ return CF_TOKEN_EMBED; } }
+function cfSetSite(v){ CUR_SITE=(v||'').trim(); SITE_FILTER=cfSite(); }
 function cfSetBase(v){ try{ localStorage.setItem(LS_CF_BASE, (v||'').trim()); }catch(e){} }
 function cfSetToken(v){ try{ localStorage.setItem(LS_CF_TOKEN, (v||'').trim()); }catch(e){} }
+
+// 事業所パスコード（各端末のlocalStorageに保存。HTMLには埋め込まない＝Publicでも漏れない）
+const LS_CF_PASS='cf_passcode';
+function cfPass(){ try{ return localStorage.getItem(LS_CF_PASS)||''; }catch(e){ return ''; } }
+function cfSetPass(v){ try{ localStorage.setItem(LS_CF_PASS, (v||'').trim()); }catch(e){} }
+
+// この端末が site に書き込めるか（案1: 選択した事業所のみ / 管理者は全部）
+function canWrite(site){ return IS_ADMIN || (site && site===CUR_SITE); }
+
 const LS_CF_MODE='cf_mode';  // 起動時のデータ読込元: cloud(既定) / auto / snap
 function cfMode(){ try{ return localStorage.getItem(LS_CF_MODE)||'cloud'; }catch(e){ return 'cloud'; } }
 function cfSetMode(v){ try{ localStorage.setItem(LS_CF_MODE, v||'cloud'); }catch(e){} }
@@ -1221,7 +1265,7 @@ async function cfPostSummary(site, siteDaily, workerDaily){
   if(!base || !token) return {skipped:true};
   const res=await fetch(base+'/summary?site='+encodeURIComponent(site),{
     method:'POST',
-    headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},
+    headers:{'Content-Type':'application/json','Authorization':'Bearer '+token,'X-Site-Pass':cfPass()},
     body:JSON.stringify({siteDaily, workerDaily})
   });
   if(!res.ok) throw new Error('summary POST '+res.status+' '+(await res.text()).slice(0,120));
@@ -1235,7 +1279,7 @@ async function cfPutRaw(site, weekKey, snapObj){
   const gz=await gzip(raw);
   const res=await fetch(base+'/raw?site='+encodeURIComponent(site)+'&week='+encodeURIComponent(weekKey),{
     method:'PUT',
-    headers:{'Authorization':'Bearer '+token,'Content-Type':'application/gzip'},
+    headers:{'Authorization':'Bearer '+token,'Content-Type':'application/gzip','X-Site-Pass':cfPass()},
     body:gz
   });
   if(!res.ok) throw new Error('raw PUT '+res.status+' '+(await res.text()).slice(0,120));
@@ -2859,8 +2903,64 @@ async function init(){
 
   $('#btnClearProd').onclick=async()=>{ if(!confirm('生産性データをクリアしますか？（PPRはメモリ、FR(作業者別)は保存済みデータも消えます）')) return; S.ppr=[];S.fr=[];S.prodFiles=[]; await clearFR(); await clearPPR(); await refreshState(); toast('生産性データをクリアしました'); };
   $('#btnClearQual').onclick=async()=>{ if(!confirm('品質データ(IndexedDB)を全消去しますか？この操作は取り消せません。')) return; await clearQual(); await refreshState(); QReport=null; toast('品質データをクリアしました'); };
+
+  // 選択事業所を上部チップに表示。書込不可の端末では取込UIを隠す
+  applySiteChrome();
 }
-init();
+
+/* ========== 事業所選択ゲート ========== */
+// クラウドから事業所リストを取得（取れなければ埋め込みfallback）
+async function loadSiteList(){
+  try{
+    const j=await fetch(cfBase()+'/config/sites?t='+Date.now(),{cache:'no-store'}).then(r=>r.ok?r.json():null);
+    if(j&&j.ok&&Array.isArray(j.sites)&&j.sites.length) SITE_LIST=j.sites;
+    else SITE_LIST=SITES_FALLBACK.slice();
+  }catch(e){ SITE_LIST=SITES_FALLBACK.slice(); }
+}
+function renderGate(){
+  const box=$('#gateSites'); if(!box) return;
+  box.innerHTML='';
+  SITE_LIST.forEach(s=>{
+    const b=el('button','btn pri', s);
+    b.style.cssText='font-size:18px;font-weight:700;padding:16px 26px;min-width:120px';
+    b.onclick=()=>enterAsSite(s);
+    box.appendChild(b);
+  });
+}
+async function enterAsSite(site){
+  cfSetSite(site);
+  IS_ADMIN=false;
+  $('#siteGate').style.display='none';
+  $('#mainWrap').style.display='';
+  await init();
+}
+async function enterAsAdmin(){
+  const pw=prompt('管理者パスワードを入力してください');
+  if(pw===null) return;
+  if(pw!==ADMIN_PW){ $('#gateMsg').textContent='パスワードが違います'; return; }
+  // 管理者は事業所も選ぶ（どの事業所として作業するか）。既定は先頭。
+  const site=SITE_LIST[0]||'HFO1';
+  cfSetSite(site);
+  IS_ADMIN=true;
+  $('#siteGate').style.display='none';
+  $('#mainWrap').style.display='';
+  await init();
+}
+// 上部チップ表示＆権限に応じた取込UIの出し分け
+function applySiteChrome(){
+  const chip=$('#siteChip');
+  if(chip) chip.textContent=(IS_ADMIN?'管理者 / ':'')+'事業所: '+cfSite()+(IS_ADMIN?'（フルアクセス）':'（取込・アップロード可）');
+  const t=$('#mainTitle'); if(t) t.textContent=cfSite()+' 品質×生産性 統合ダッシュボード';
+  // 閲覧のみ（自分の事業所でない）状況は buildDash 側のセレクタ切替で発生。取込ドロップは自分の事業所選択中のみ有効。
+  // ここでは常に「選択事業所＝取込対象」なので取込UIは表示のままでよい。
+}
+
+async function boot(){
+  await loadSiteList();
+  renderGate();
+  const ab=$('#gateAdminBtn'); if(ab) ab.onclick=enterAsAdmin;
+}
+boot();
 </script>
 </body>
 </html>
