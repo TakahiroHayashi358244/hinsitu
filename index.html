@@ -270,31 +270,6 @@ tr.out td{color:var(--mut);font-style:italic}
         </div>
       </div>
     </div>
-
-    <div class="card" id="syncCard" style="margin-top:14px;border:1px solid var(--line);border-radius:12px;background:var(--panel)">
-      <div style="padding:11px 15px;border-bottom:1px solid var(--line);font-weight:700;display:flex;justify-content:space-between;align-items:center;gap:10px">
-        <span>クラウド同期（GAS）— 別端末とデータを共有</span>
-        <span id="syncBadge" style="font-size:12px;color:var(--mut);font-weight:400"></span>
-      </div>
-      <div style="padding:13px 15px">
-        <div class="row" style="gap:8px;align-items:flex-end;flex-wrap:wrap">
-          <div style="flex:1;min-width:280px">
-            <label style="font-size:12px;color:var(--mut);display:block;margin-bottom:4px">GAS ウェブアプリURL（/exec で終わるもの）</label>
-            <input type="text" id="gasUrl" placeholder="https://script.google.com/macros/s/AKfyc.../exec"
-              style="width:100%;padding:8px 10px;border:1px solid #cfd8e6;border-radius:8px;font-size:12.5px">
-          </div>
-          <button class="btn" id="btnTest">接続テスト</button>
-          <button class="btn" id="btnPush">↑ アップロード</button>
-          <button class="btn" id="btnPull">↓ ダウンロード</button>
-          <button class="btn gho" id="btnGasCode">GASコードを表示</button>
-        </div>
-        <div class="note" style="margin-top:8px">
-          URLはこのブラウザに保存されます。<b>アップロード</b>＝この端末のデータをGASへ送信（同一レコードは上書き）。<b>ダウンロード</b>＝GASのデータをこの端末へ取り込み。
-          重複排除キーは行の内容から決まるため、<b>どの端末でどの順に取り込んでも同じ結果</b>になります。
-        </div>
-        <div id="syncLog" class="note" style="margin-top:6px"></div>
-      </div>
-    </div>
   </div>
 
   <div id="dash"></div>
@@ -439,9 +414,9 @@ function cfToken(){ try{ return localStorage.getItem(LS_CF_TOKEN)||''; }catch(e)
 function cfSetSite(v){ try{ localStorage.setItem(LS_CF_SITE, (v||'').trim()); }catch(e){} SITE_FILTER=cfSite(); }
 function cfSetBase(v){ try{ localStorage.setItem(LS_CF_BASE, (v||'').trim()); }catch(e){} }
 function cfSetToken(v){ try{ localStorage.setItem(LS_CF_TOKEN, (v||'').trim()); }catch(e){} }
-const LS_CF_MODE='cf_mode';  // 起動時のデータ読込元: auto(既定) / cloud / snap
-function cfMode(){ try{ return localStorage.getItem(LS_CF_MODE)||'auto'; }catch(e){ return 'auto'; } }
-function cfSetMode(v){ try{ localStorage.setItem(LS_CF_MODE, v||'auto'); }catch(e){} }
+const LS_CF_MODE='cf_mode';  // 起動時のデータ読込元: cloud(既定) / auto / snap
+function cfMode(){ try{ return localStorage.getItem(LS_CF_MODE)||'cloud'; }catch(e){ return 'cloud'; } }
+function cfSetMode(v){ try{ localStorage.setItem(LS_CF_MODE, v||'cloud'); }catch(e){} }
 // 起動時、担当サイト設定があれば取込フィルタをそれに合わせる
 SITE_FILTER=cfSite();
 /* ---------- 必要ZIP(日次取込チェックリスト) ---------- */
@@ -1085,40 +1060,6 @@ function syncLog(msg,cls,target){
   d.style.cssText='padding:2px 0;'+(cls==='er'?'color:#b91c1c':cls==='ok'?'color:#065f46':'color:#6b7a90');
   L.prepend(d);
 }
-function gasUrl(){
-  let u=($('#gasUrl').value||'').trim().replace(/[\s\u3000]+$/,'');
-  if(!u) throw new Error('GASのURLを入力してください');
-  if(!/^https:\/\/script\.google\.com\//.test(u))
-    throw new Error('URLが不正です。script.google.com のウェブアプリURL（/exec）を貼ってください。現在の値: '+u.slice(0,60));
-  if(!/\/exec(\?|$)/.test(u))
-    throw new Error('URLの末尾が /exec ではありません。「デプロイ > ウェブアプリ」のURLを使ってください（/dev ではなく /exec）。現在の値: '+u.slice(0,60));
-  return u;
-}
-/* GASはCORSプリフライトを返せないため、text/plain で送る（プリフライト回避） */
-async function gasCall(url, payload){
-  let res;
-  try{
-    res=await fetch(url,{
-      method:'POST',
-      headers:{'Content-Type':'text/plain;charset=utf-8'},  // プリフライト回避
-      body:JSON.stringify(payload),
-      redirect:'follow',
-    });
-  }catch(e){
-    throw new Error('通信できません（CORS/ネットワーク）。デプロイ設定の「アクセスできるユーザー」を必ず【全員】にしてください。詳細: '+e.message);
-  }
-  const txt=await res.text();
-  if(!res.ok) throw new Error('HTTP '+res.status+' — '+txt.slice(0,120));
-  let j;
-  try{ j=JSON.parse(txt); }
-  catch(e){
-    if(/<html|<!DOCTYPE|ログイン|Sign in|Google アカウント/i.test(txt))
-      throw new Error('GASがログイン画面を返しました。デプロイの「アクセスできるユーザー」を【全員】にして、再デプロイしてください。');
-    throw new Error('応答がJSONではありません: '+txt.slice(0,120));
-  }
-  if(j.error) throw new Error('GAS側エラー: '+j.error);
-  return j;
-}
 function readStore(name){
   return new Promise(res=>{
     if(!db.objectStoreNames.contains(name)) return res([]);
@@ -1136,193 +1077,6 @@ function writeStore(name,recs){
   });
 }
 
-async function gasTest(){
-  const btn=$('#btnTest'); btn.disabled=true;
-  $('#syncLog').innerHTML='';
-  try{
-    const url=gasUrl();
-    syncLog('接続テスト中… '+url.slice(0,50)+'…','dim');
-    // doGet で疎通確認（GETはCORSが緩く、原因の切り分けがしやすい）
-    const res=await fetch(url,{method:'GET',redirect:'follow'});
-    const txt=await res.text();
-    let j=null;
-    try{ j=JSON.parse(txt); }catch(e){}
-    if(!j){
-      if(/<html|<!DOCTYPE|Sign in|ログイン/i.test(txt))
-        throw new Error('ログイン画面が返りました → デプロイの「アクセスできるユーザー」を【全員】にして再デプロイしてください');
-      throw new Error('JSONが返りません: '+txt.slice(0,100));
-    }
-    if(j.error) throw new Error('GAS側エラー: '+j.error);
-    syncLog('✓ 接続OK。シート: '+((j.sheets||[]).map(x=>x.name+'('+x.rows+'行)').join(', ')||'なし'),'ok');
-    syncLog('　→ アップロード/ダウンロードが使えます','dim');
-  }catch(e){
-    syncLog('✕ '+e.message,'er');
-    syncLog('　確認: ①URLは /exec で終わるか ②デプロイのアクセス権は「全員」か ③コード変更後に【新しいデプロイ】をしたか','dim');
-  }
-  btn.disabled=false;
-}
-
-async function gasPush(){
-  const btn=$('#btnPush'); btn.disabled=true;
-  try{
-    const url=gasUrl();          // ★try内に置く。外だと例外が捕まらず「無反応」に見える
-    syncLog('アップロード開始…','dim');
-    let total=0;
-    for(const S of SYNC_STORES){
-      const recs=await readStore(S.store);
-      if(!recs.length) continue;
-      // チャンク送信。最初のチャンクで mode:'replace' にせず、常に upsert（他端末のデータを消さない）
-      for(let i=0;i<recs.length;i+=CHUNK){
-        const part=recs.slice(i,i+CHUNK);
-        await gasCall(url,{action:'push', sheet:S.sheet, key:S.key, rows:part});
-        total+=part.length;
-        syncLog('↑ '+S.sheet+' '+Math.min(i+CHUNK,recs.length)+'/'+recs.length,'dim');
-      }
-    }
-    syncLog('✓ アップロード完了：'+fmtI(total)+'件','ok');
-    toast('アップロード完了');
-  }catch(e){ syncLog('✕ '+e.message,'er'); toast('アップロード失敗'); }
-  btn.disabled=false;
-}
-
-async function gasPull(){
-  const btn=$('#btnPull'); btn.disabled=true;
-  try{
-    const url=gasUrl();          // ★try内に置く
-    syncLog('ダウンロード開始…','dim');
-    let total=0;
-    for(const S of SYNC_STORES){
-      let offset=0;
-      for(;;){
-        const j=await gasCall(url,{action:'pull', sheet:S.sheet, offset, limit:CHUNK});
-        const rows=j.rows||[];
-        if(rows.length){
-          await writeStore(S.store, rows);
-          total+=rows.length;
-          syncLog('↓ '+S.sheet+' '+(offset+rows.length)+(j.total?('/'+j.total):''),'dim');
-        }
-        offset+=rows.length;
-        if(rows.length<CHUNK) break;      // 最後のページ
-        if(offset>200000) break;          // 安全弁
-      }
-    }
-    await loadMaster();
-    await reloadFR();
-    await reloadPPR();
-    await refreshState();
-    syncLog('✓ ダウンロード完了：'+fmtI(total)+'件（既存と同一キーは上書き）','ok');
-    toast('ダウンロード完了');
-  }catch(e){ syncLog('✕ '+e.message,'er'); toast('ダウンロード失敗'); }
-  btn.disabled=false;
-}
-
-/* GAS側に貼るコードを表示 */
-const GAS_CODE=`/**
- * HFO1 品質生産性ツール — 同期用GAS
- * 1. スプレッドシートを新規作成し、拡張機能 > Apps Script を開く
- * 2. このコードを貼り付けて保存
- * 3. デプロイ > 新しいデプロイ > 種類「ウェブアプリ」
- *      次のユーザーとして実行: 自分
- *      アクセスできるユーザー: 全員        ← 社内のみで使う場合も「全員」にしないとfetchできません
- * 4. 発行された /exec のURLをツールに貼る
- */
-const SS = SpreadsheetApp.getActiveSpreadsheet();
-
-function doPost(e){
-  try{
-    const req = JSON.parse(e.postData.contents);
-    if(req.action === 'push') return json(push_(req));
-    if(req.action === 'pull') return json(pull_(req));
-    return json({error:'unknown action'});
-  }catch(err){
-    return json({error:String(err)});
-  }
-}
-/** ブラウザでこのURLを直接開くと {"ok":true,...} が出れば疎通OK。
- *  ログイン画面やエラーが出る場合はデプロイ設定（アクセス:全員）を見直す。 */
-function doGet(e){
-  const p = (e && e.parameter) || {};
-  if(p.action === 'pull'){
-    return json(pull_({sheet:p.sheet, offset:Number(p.offset||0), limit:Number(p.limit||400)}));
-  }
-  const sheets = SS.getSheets().map(function(sh){
-    return {name: sh.getName(), rows: sh.getLastRow()};
-  });
-  return json({ok:true, msg:'GAS接続OK', sheets:sheets});
-}
-
-function json(o){
-  return ContentService.createTextOutput(JSON.stringify(o))
-    .setMimeType(ContentService.MimeType.JSON);
-}
-function sheet_(name){
-  let sh = SS.getSheetByName(name);
-  if(!sh) sh = SS.insertSheet(name);
-  return sh;
-}
-
-/** rows を key 列で upsert。全レコードは1セルにJSONで保持し、A列にキーを置く。
- *  列数の違う雑多なレコードを扱うため、スキーマ非依存のJSON保存とする。 */
-function push_(req){
-  const sh = sheet_(req.sheet);
-  const key = req.key || '_k';
-  const rows = req.rows || [];
-  const last = sh.getLastRow();
-  const idx = {};
-  if(last > 0){
-    const keys = sh.getRange(1,1,last,1).getValues();
-    for(let i=0;i<keys.length;i++) idx[String(keys[i][0])] = i+1;   // 1-based row
-  }
-  const appends = [];
-  rows.forEach(function(r){
-    const k = String(r[key]);
-    const payload = JSON.stringify(r);
-    const at = idx[k];
-    if(at){
-      sh.getRange(at,2).setValue(payload);      // 既存 → 上書き
-    }else{
-      appends.push([k, payload]);
-      idx[k] = -1;                              // 同一バッチ内の重複を防ぐ
-    }
-  });
-  if(appends.length){
-    sh.getRange(sh.getLastRow()+1, 1, appends.length, 2).setValues(appends);
-  }
-  return {ok:true, upserted: rows.length, total: sh.getLastRow()};
-}
-
-function pull_(req){
-  const sh = SS.getSheetByName(req.sheet);
-  if(!sh) return {rows:[], total:0};
-  const total = sh.getLastRow();
-  const offset = req.offset || 0;
-  const limit = req.limit || 400;
-  if(offset >= total) return {rows:[], total:total};
-  const n = Math.min(limit, total - offset);
-  const vals = sh.getRange(offset+1, 2, n, 1).getValues();
-  const rows = [];
-  vals.forEach(function(v){
-    if(!v[0]) return;
-    try{ rows.push(JSON.parse(v[0])); }catch(err){}
-  });
-  return {rows:rows, total:total};
-}
-`;
-
-function showGasCode(){
-  const m=$('#mask'); if(!m) return;
-  const box=$('#masterBox')||m.firstElementChild;
-  // 汎用モーダルが無い場合は新しいウィンドウで表示
-  const w=window.open('','_blank');
-  if(!w){ alert('ポップアップがブロックされました'); return; }
-  w.document.write('<html><head><meta charset="utf-8"><title>GAS コード</title></head><body style="margin:0;background:#0d1117">'
-    +'<div style="padding:12px 16px;background:#161b22;color:#e6edf3;font-family:sans-serif;font-size:14px">'
-    +'このコードを Apps Script に貼り付けてください（下のコードを全選択してコピー）</div>'
-    +'<pre style="margin:0;padding:16px;color:#c9d1d9;background:#0d1117;font-size:12.5px;line-height:1.6;white-space:pre-wrap">'
-    + GAS_CODE.replace(/&/g,'&amp;').replace(/</g,'&lt;')
-    +'</pre></body></html>');
-  w.document.close();
-}
 
 
 /* =========================================================
@@ -3039,11 +2793,6 @@ async function init(){
   if($('#detModal')) $('#detModal').addEventListener('click',e=>{ if(e.target.id==='detModal') $('#detModal').classList.remove('on'); });
   if($('#detPrint')) $('#detPrint').onclick=()=>window.print();
   $('#btnSample').onclick=()=>{ $('#mText').value='永田 大作,nagatdai,日勤,○\n成松 みよ,narimatmy,夜勤,\n北里 直樹,kitasnao,日勤,○'; $('#mask').classList.add('on'); };
-  // --- GAS同期 ---
-  const gu=$('#gasUrl');
-  try{ gu.value=localStorage.getItem('hfo1_gas_url')||''; }catch(e){}
-  const saveUrl=()=>{ try{ localStorage.setItem('hfo1_gas_url', gu.value.trim()); }catch(e){} };
-  gu.onchange=saveUrl; gu.oninput=saveUrl;
   // --- スナップショット ---
   const ca=$('#chkAdmin');
   ca.checked=isAdminMode();
@@ -3103,11 +2852,6 @@ async function init(){
       btnP.disabled=false;
     };
   }
-
-  $('#btnTest').onclick=gasTest;
-  $('#btnPush').onclick=gasPush;
-  $('#btnPull').onclick=gasPull;
-  $('#btnGasCode').onclick=showGasCode;
 
   $('#btnClearProd').onclick=async()=>{ if(!confirm('生産性データをクリアしますか？（PPRはメモリ、FR(作業者別)は保存済みデータも消えます）')) return; S.ppr=[];S.fr=[];S.prodFiles=[]; await clearFR(); await clearPPR(); await refreshState(); toast('生産性データをクリアしました'); };
   $('#btnClearQual').onclick=async()=>{ if(!confirm('品質データ(IndexedDB)を全消去しますか？この操作は取り消せません。')) return; await clearQual(); await refreshState(); QReport=null; toast('品質データをクリアしました'); };
