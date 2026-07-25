@@ -256,6 +256,12 @@ tr.out td{color:var(--mut);font-style:italic}
             <button class="btn gho" id="btnCfTest">接続テスト</button>
             <button class="btn" id="btnCfPush">今すぐアップロード</button>
           </div>
+          <div style="margin-top:8px;font-size:12.5px;color:var(--mut)">
+            <b>データ読込元</b>（起動時）：
+            <label style="margin-left:8px;cursor:pointer"><input type="radio" name="cfMode" value="auto" style="vertical-align:-2px"> クラウド優先（従来スナップショットにフォールバック）</label>
+            <label style="margin-left:12px;cursor:pointer"><input type="radio" name="cfMode" value="cloud" style="vertical-align:-2px"> クラウドのみ（スナップショット不使用）</label>
+            <label style="margin-left:12px;cursor:pointer"><input type="radio" name="cfMode" value="snap" style="vertical-align:-2px"> スナップショットのみ（従来動作）</label>
+          </div>
           <div class="note" style="margin-top:6px">
             設定すると<b>取込完了時に自動でクラウドへ送信</b>されます（サマリは恒久保存、明細は12週で自動削除）。<br>
             <b>閲覧端末はトークン空欄でOK</b>（送信しません）。担当事業所ごとにデータが振り分けられます。
@@ -433,6 +439,9 @@ function cfToken(){ try{ return localStorage.getItem(LS_CF_TOKEN)||''; }catch(e)
 function cfSetSite(v){ try{ localStorage.setItem(LS_CF_SITE, (v||'').trim()); }catch(e){} SITE_FILTER=cfSite(); }
 function cfSetBase(v){ try{ localStorage.setItem(LS_CF_BASE, (v||'').trim()); }catch(e){} }
 function cfSetToken(v){ try{ localStorage.setItem(LS_CF_TOKEN, (v||'').trim()); }catch(e){} }
+const LS_CF_MODE='cf_mode';  // 起動時のデータ読込元: auto(既定) / cloud / snap
+function cfMode(){ try{ return localStorage.getItem(LS_CF_MODE)||'auto'; }catch(e){ return 'auto'; } }
+function cfSetMode(v){ try{ localStorage.setItem(LS_CF_MODE, v||'auto'); }catch(e){} }
 // 起動時、担当サイト設定があれば取込フィルタをそれに合わせる
 SITE_FILTER=cfSite();
 /* ---------- 必要ZIP(日次取込チェックリスト) ---------- */
@@ -2995,13 +3004,22 @@ async function init(){
   await reloadFR();
   await reloadPPR();
 
-  // ★起動時のデータ同期。A-1一本化:
-  //   1) まず Cloudflare の最新明細(raw)を試す（設定済み端末）
-  //   2) Cloudflareが未設定/最新/失敗なら、従来のスナップショット(snapshot.json.gz)へフォールバック
-  //   - 管理端末モードONなら、どちらも自動適用しない（自分の取込を上書きしないため）
-  const cfApplied=await cfPullLatest();
-  if(!cfApplied){
+  // ★起動時のデータ同期。読込元は「データ読込元」トグルで選べる（既定=クラウド優先）
+  //   auto  : クラウドを試す → 未設定/最新/失敗ならスナップショットへフォールバック
+  //   cloud : クラウドのみ（スナップショットは使わない）＝ 検証・完全一本化用
+  //   snap  : スナップショットのみ（従来動作）
+  const mode=cfMode();
+  if(mode==='snap'){
+    logLine('[読込] スナップショットのみ（従来動作）','dim');
     await autoSyncSnapshot();
+  } else if(mode==='cloud'){
+    logLine('[読込] クラウドのみ（スナップショット不使用）','dim');
+    const ok=await cfPullLatest();
+    if(!ok) logLine('[読込] クラウドから読み込めませんでした（設定/データ/接続を確認）。スナップショットへはフォールバックしません。','wn');
+  } else {
+    logLine('[読込] クラウド優先','dim');
+    const cfApplied=await cfPullLatest();
+    if(!cfApplied){ logLine('[読込] クラウド未適用のためスナップショットにフォールバック','dim'); await autoSyncSnapshot(); }
   }
   await reloadPPR();
   await refreshState();
@@ -3043,6 +3061,12 @@ async function init(){
     cS.onchange=()=>{ cfSetSite(cS.value); toast('担当事業所: '+cfSite()); };
     cB.onchange=()=>cfSetBase(cB.value);
     cT.onchange=()=>cfSetToken(cT.value);
+    // データ読込元トグルの初期化と保存
+    const savedMode=cfMode();
+    document.querySelectorAll('input[name="cfMode"]').forEach(r=>{
+      r.checked=(r.value===savedMode);
+      r.onchange=()=>{ if(r.checked){ cfSetMode(r.value); toast('読込元: '+({auto:'クラウド優先',cloud:'クラウドのみ',snap:'スナップショットのみ'}[r.value]||r.value)+'（次回リロードから有効）'); } };
+    });
     const btnT=$('#btnCfTest');
     if(btnT) btnT.onclick=async()=>{
       cfSetSite(cS.value); cfSetBase(cB.value); cfSetToken(cT.value);
