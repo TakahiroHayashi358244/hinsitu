@@ -486,7 +486,7 @@ const LS_CF_SITE='cf_site', LS_CF_BASE='cf_base', LS_CF_TOKEN='cf_token';
    ADMIN_PW       : 管理者モードのパスワード
    SITES_FALLBACK : クラウドの事業所リストが取れない時の初期候補 */
 const CF_BASE_EMBED  = "https://quality-sync.takahiro884.workers.dev";
-const CF_TOKEN_EMBED = "a80ed1f49bb6569cd915069a4134c205";   // ★ここにADMINトークンを貼る（例: "abcd1234..."）
+const CF_TOKEN_EMBED = "";   // ★ここにADMINトークンを貼る（例: "abcd1234..."）
 const ADMIN_PW       = "Gworker000";
 const SITES_FALLBACK = ["HFO1","TPY1","TPZ6","TPB2"];
 
@@ -2422,11 +2422,38 @@ async function recalcQuality(){
   const site=siteSel.value, from=$('#qFrom').value, to=$('#qTo').value;
   if(!site){ QReport=null; renderQualPanes(); return; }
   QReport=await computeQuality(site,from,to);
+  // ★段階5: 欠陥フラグを反映した台帳DPMOで、KPIのDPMO値を上書き（欠陥管理タブと一致させる）
+  await overlayLedgerDpmo(site, from, to);
   applyResolvedPeriod();
   renderQualPanes();
   renderGapBanner();
   renderTradeoffInto();
   refreshDataPane();
+}
+
+/* 台帳(欠陥フラグ反映済み)からDPMOを計算し、QReport.kpi を上書きする。
+   表示構造は既存のまま、DPMOの値だけ台帳基準に統一する。 */
+async function overlayLedgerDpmo(site, from, to){
+  if(!QReport||!QReport.kpi) return;
+  try{
+    const base=cfBase(); if(!base) return;
+    const [defects, volume]=await Promise.all([
+      fetch(base+'/ledger/defects?site='+encodeURIComponent(site)+'&t='+Date.now(),{cache:'no-store'}).then(r=>r.json()).then(j=>j&&j.ok?j.rows:[]).catch(()=>[]),
+      fetch(base+'/ledger?site='+encodeURIComponent(site)+'&kind=volume&t='+Date.now(),{cache:'no-store'}).then(r=>r.json()).then(j=>j&&j.ok?j.rows:[]).catch(()=>[])
+    ]);
+    if(!defects.length && !volume.length) return; // 台帳が無ければ従来値のまま
+    const rep=computeFromLedgers({volume, defects, worker:[], process:[]}, from, to);
+    const k=rep.kpi;
+    // 既存パネルが読むフィールドを台帳値で上書き
+    QReport.kpi.stowDpmo=k.stowDpmo;
+    QReport.kpi.pickDpmo=k.pickDpmo;
+    QReport.kpi.rcvDpmo=k.rcvDpmo;
+    QReport.kpi.shortageDpmo=k.shortageDpmo;
+    // 旧: pickWorkDpmo(作業ミス)=process=Pickでtype≠欠品 / pickShelfDpmo(欠品)=process=欠品
+    QReport.kpi.pickWorkDpmo=k.pickDpmo;      // Pick責任=作業ミス相当
+    QReport.kpi.pickShelfDpmo=k.shortageDpmo; // 欠品=欠品DPMO
+    QReport._ledgerApplied=true;
+  }catch(e){ /* 台帳取得失敗時は従来値のまま（表示は壊さない） */ }
 }
 
 /* 品質KPI直下に常時出す欠落警告バナー */
@@ -2616,8 +2643,9 @@ function paneDefects(pane){
   const title=el('div'); title.innerHTML='<b>欠陥明細（責任所在・種別・真因の確定）</b>　<span style="font-size:12px;color:var(--mut)">'+site+(writable?'（編集可）':'（閲覧のみ）')+'</span>';
   const reload=el('button','btn gho','再読込');
   const filt=el('select'); ['全件','未確定のみ','確定済みのみ'].forEach(o=>{const op=el('option');op.value=o;op.textContent=o;filt.appendChild(op);});
+  const bulkBtn=el('button','btn gho','表示中の未確定を一括確定');
   const msg=el('span'); msg.style.cssText='font-size:12px;color:var(--mut)';
-  bar.appendChild(title); bar.appendChild(reload); bar.appendChild(filt); bar.appendChild(msg);
+  bar.appendChild(title); bar.appendChild(reload); bar.appendChild(filt); bar.appendChild(bulkBtn); bar.appendChild(msg);
   pane.appendChild(bar);
 
   const kpiBox=el('div'); kpiBox.style.cssText='display:flex;gap:14px;flex-wrap:wrap;margin-bottom:12px';
@@ -2692,20 +2720,27 @@ function paneDefects(pane){
       // 真因メモ（自由記述）
       td=el('td'); const inpM=el('input'); inpM.type='text'; inpM.value=r.cause||''; inpM.placeholder='任意'; inpM.style.cssText='width:120px;padding:3px 6px;border:1px solid #cfd8e6;border-radius:6px;font-size:12px'; inpM.disabled=!writable; td.appendChild(inpM); tr.appendChild(td);
       // 状態
-      td=el('td'); const badge=el('span'); badge.textContent=confirmed?'確定':'未確定'; badge.style.cssText='font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;'+(confirmed?'background:#dcfce7;color:#166534':'background:#f1f5f9;color:#64748b'); td.appendChild(badge); tr.appendChild(td);
+      td=el('td'); const badge=el('span'); badge.textContent=confirmed?'確定':'未確定'; badge.style.cssText='font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;'+(confirmed?'background:#dcfce7;color:#166534':'background:#f1f5f9;color:#64748b'); td.appendChild(badge);
+      if(writable && !confirmed){
+        const okBtn=el('button','', ' 確定'); okBtn.style.cssText='margin-left:6px;font-size:11px;padding:2px 8px;border:1px solid #86c99a;background:#f0fdf4;color:#166534;border-radius:6px;cursor:pointer';
+        okBtn.title='変更せずこのまま確定（確認済みにする）';
+        okBtn.onclick=()=>save();
+        td.appendChild(okBtn);
+      }
+      tr.appendChild(td);
 
-      // 保存処理（変更で即PATCH）
+      // 保存処理（変更で即PATCH。ボタンでも呼ばれる＝変更なし確定）
       const save=async()=>{
         if(!writable) return;
         const edit={id:r.id, process:selP.value, type:selT.value, causeType:selC.value, cause:inpM.value, by:(IS_ADMIN?'admin':site)};
         try{
           msg.textContent='保存中…';
           await cfPatchDefect(site, edit);
-          // キャッシュ更新
           Object.assign(r, {process:selP.value,type:selT.value,causeType:selC.value,cause:inpM.value,updatedBy:edit.by});
           badge.textContent='確定'; badge.style.cssText='font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;background:#dcfce7;color:#166534';
+          const ob=td.querySelector('button'); if(ob) ob.remove();
           paintRow(true);
-          recalcKpi(); msg.textContent='保存しました（'+r.id.slice(0,12)+'…）';
+          recalcKpi(); msg.textContent='確定しました（'+r.id.slice(0,12)+'…）';
         }catch(e){ msg.textContent='保存失敗: '+e.message; }
       };
       selP.onchange=save; selT.onchange=save; selC.onchange=save; inpM.onchange=save;
@@ -2722,6 +2757,33 @@ function paneDefects(pane){
     }catch(e){ msg.textContent='読み込み失敗: '+e.message; }
   }
   reload.onclick=load; filt.onchange=render;
+  bulkBtn.onclick=async()=>{
+    if(!writable){ msg.textContent='閲覧のみの事業所です'; return; }
+    // 現在の表示フィルタで見えている未確定行を対象に一括確定
+    const f=filt.value;
+    let rows=DEFECTS_CACHE.slice();
+    if(f==='確定済みのみ'){ msg.textContent='確定済み表示中は対象がありません'; return; }
+    const targets=rows.filter(r=>!(r.updatedBy&&r.updatedBy!=='ingest'));
+    if(!targets.length){ msg.textContent='未確定の行がありません'; return; }
+    if(!confirm(targets.length+'件を現在の分類のまま一括確定します。よろしいですか？')) return;
+    bulkBtn.disabled=true; msg.textContent='一括確定中… 0/'+targets.length;
+    const by=(IS_ADMIN?'admin':site);
+    const edits=targets.map(r=>({id:r.id,process:r.process,type:r.type,causeType:r.causeType||'',cause:r.cause||'',by}));
+    try{
+      // Workerは配列で複数editを受けるので1リクエストで送る
+      const base=cfBase();
+      const res=await fetch(base+'/ledger/defects?site='+encodeURIComponent(site),{
+        method:'PATCH',
+        headers:{'Content-Type':'application/json','Authorization':'Bearer '+cfToken(),'X-Site-Pass':cfPass()},
+        body:JSON.stringify({edits})
+      });
+      const j=await res.json();
+      if(!res.ok||!j.ok) throw new Error(j.error||('HTTP '+res.status));
+      targets.forEach(r=>{ r.updatedBy=by; });
+      recalcKpi(); render(); msg.textContent=j.updated+'件を一括確定しました';
+    }catch(e){ msg.textContent='一括確定失敗: '+e.message; }
+    bulkBtn.disabled=false;
+  };
   load();
 }
 
