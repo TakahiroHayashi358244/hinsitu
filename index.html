@@ -324,6 +324,20 @@ tr.out td{color:var(--mut);font-style:italic}
           </div>
           <div class="note" style="margin-top:4px">「クラウドに保存」で全端末の選択ゲートに反映されます（トークン＋パスコード必須）。</div>
         </div>
+
+        <!-- 台帳アップロード（段階2-3 台帳版） -->
+        <div style="margin-top:16px;border-top:1px solid #f0d38a;padding-top:14px">
+          <div style="font-weight:600;font-size:13px;margin-bottom:6px">📒 台帳をアップロード（新設計・並行運用）</div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <button class="btn" id="admLedgerPush">現在のデータから台帳を生成・送信</button>
+            <span id="admLedgerMsg" style="font-size:12px;color:#5a6b86"></span>
+          </div>
+          <div class="note" style="margin-top:4px">
+            表示中の事業所（<span id="admLedgerSite"></span>）のデータから、処理量・工程・作業者・<b>欠陥明細</b>の台帳を生成してクラウドへ送ります。
+            欠陥の責任所在フラグは「欠陥管理」タブで確定できます（既存の明細アップロードとは別系統）。
+          </div>
+          <div id="admLedgerLog" class="note" style="margin-top:6px"></div>
+        </div>
       </div>
     </div>
   </div>
@@ -472,7 +486,7 @@ const LS_CF_SITE='cf_site', LS_CF_BASE='cf_base', LS_CF_TOKEN='cf_token';
    ADMIN_PW       : 管理者モードのパスワード
    SITES_FALLBACK : クラウドの事業所リストが取れない時の初期候補 */
 const CF_BASE_EMBED  = "https://quality-sync.takahiro884.workers.dev";
-const CF_TOKEN_EMBED = "308c40cc8b1df12102579a4bcfbf00c4d64dbb6119d60302";   // ★ここにADMINトークンを貼る（例: "abcd1234..."）
+const CF_TOKEN_EMBED = "";   // ★ここにADMINトークンを貼る（例: "abcd1234..."）
 const ADMIN_PW       = "Gworker000";
 const SITES_FALLBACK = ["HFO1","TPY1","TPZ6","TPB2"];
 
@@ -3315,6 +3329,19 @@ function applySiteChrome(){
 let _adminWired=false;
 function wireAdminPanel(){
   if(_adminWired) return; _adminWired=true;
+  // 台帳アップロード
+  const als=$('#admLedgerSite'); if(als) als.textContent=cfSite();
+  const alp=$('#admLedgerPush');
+  if(alp) alp.onclick=async()=>{
+    if(!cfToken()){ $('#admLedgerMsg').textContent='トークン未設定'; return; }
+    if(!cfPass()){ $('#admLedgerMsg').textContent='パスコード未設定（上の欄で保存してください）'; return; }
+    alp.disabled=true; $('#admLedgerMsg').textContent='生成・送信中…';
+    try{
+      await cfUploadLedgers('#admLedgerLog');
+      $('#admLedgerMsg').textContent='完了';
+    }catch(e){ $('#admLedgerMsg').textContent='失敗: '+e.message; }
+    alp.disabled=false;
+  };
   // パスコード
   const ap=$('#admPass'); if(ap){ ap.value=cfPass();
     $('#admPassSave').onclick=()=>{ cfSetPass(ap.value); $('#admPassMsg').textContent='保存しました'; setTimeout(()=>$('#admPassMsg').textContent='',1500); };
