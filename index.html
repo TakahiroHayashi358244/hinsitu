@@ -163,6 +163,31 @@ tr.out td{color:var(--mut);font-style:italic}
 }
 .detTable.rec2 tr.itemrow td.item .ilabel{color:#8a97ad;font-weight:600;margin-right:4px}
 .detTable.rec2 tr.itemrow{border-bottom:2px solid #eef1f6}
+/* ===== 進捗バー（取込 / クラウド同期 / 起動読込 共通・全体1本）===== */
+#progWrap{position:fixed;left:0;right:0;top:0;z-index:9998;transform:translateY(-100%);
+  transition:transform .25s ease;background:rgba(255,255,255,.97);border-bottom:1px solid var(--line);
+  box-shadow:0 2px 12px rgba(20,40,80,.12);padding:8px 18px 10px;-webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px)}
+#progWrap.on{transform:translateY(0)}
+#progInfo{display:flex;align-items:center;justify-content:space-between;gap:14px;
+  font-size:12.5px;color:var(--ink2);margin-bottom:6px;max-width:1360px;margin-left:auto;margin-right:auto}
+#progPhase{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+#progPhase .ico{display:inline-block;width:12px;height:12px;border:2px solid var(--accent);
+  border-right-color:transparent;border-radius:50%;margin-right:7px;vertical-align:-1px;animation:progspin .7s linear infinite}
+#progCount{color:var(--mut);font-variant-numeric:tabular-nums;white-space:nowrap}
+#progTrack{height:7px;border-radius:999px;background:#e4eaf2;overflow:hidden;position:relative;
+  max-width:1360px;margin:0 auto}
+#progFill{height:100%;width:0;border-radius:999px;
+  background:linear-gradient(90deg,var(--accent),var(--accent2));transition:width .2s ease}
+#progWrap.indet #progFill{width:32%!important;position:absolute;left:0;transition:none;
+  animation:progslide 1.15s ease-in-out infinite}
+#progWrap.done #progFill{background:linear-gradient(90deg,var(--good),#37b26a)}
+#progWrap.done #progPhase .ico,#progWrap.err #progPhase .ico{display:none}
+#progWrap.err #progFill{background:linear-gradient(90deg,var(--bad),#e17055);animation:none;width:100%!important;position:static}
+#progWrap.err #progPhase{color:var(--bad)}
+@keyframes progspin{to{transform:rotate(360deg)}}
+@keyframes progslide{0%{left:-32%}100%{left:100%}}
+@media print{#progWrap{display:none!important}}
+
 @page{ size:A4 landscape; margin:8mm; }
 @media print{
   html,body{height:auto!important;margin:0!important;padding:0!important}
@@ -188,6 +213,15 @@ tr.out td{color:var(--mut);font-style:italic}
 </style>
 </head>
 <body>
+
+<!-- ========== 全体進捗バー（取込 / クラウド同期 / 起動読込 共通）========== -->
+<div id="progWrap" aria-hidden="true" role="progressbar">
+  <div id="progInfo">
+    <span id="progPhase"></span>
+    <span id="progCount"></span>
+  </div>
+  <div id="progTrack"><div id="progFill"></div></div>
+</div>
 
 <!-- ========== 事業所選択ゲート（起動時に必ず表示）========== -->
 <div id="siteGate" style="position:fixed;inset:0;z-index:9999;background:linear-gradient(160deg,#1f3a5f,#0d1b2e);display:flex;align-items:center;justify-content:center">
@@ -403,6 +437,54 @@ const num=v=>(v===''||v==null||isNaN(v))?0:Number(v);
 function logLine(msg,cls){const L=$('#log');L.classList.add('on');const s=el('div',cls||'dim',msg);L.prepend(s);}
 function toast(msg){const t=$('#toast');t.textContent=msg;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),1900);}
 
+/* =========================================================
+   進捗コントローラ Prog（全体1本の進捗バーを駆動）
+   - 取込パイプライン / クラウド同期 / 起動読込 の3系統から共通利用
+   - determinate: begin(label,total) → tick()/add() で加算
+   - indeterminate: begin(label,null) または setPhaseIndet(label)（総数不明時のアニメ）
+   - phase(label,sub) はパーセントを保ったままラベルだけ更新
+   - finish()/fail() で 100%表示→自動的にスライドアウト
+   ========================================================= */
+const Prog=(()=>{
+  let total=0, done=0, indet=false, hideT=null, phase='';
+  const q=id=>document.getElementById(id);
+  function paint(sub){
+    const w=q('progWrap'); if(!w) return;
+    const fill=q('progFill'), ph=q('progPhase'), ct=q('progCount');
+    if(indet){
+      w.classList.add('indet'); w.classList.remove('done');
+      if(fill) fill.style.width='';
+      if(ct) ct.textContent='';
+    }else{
+      w.classList.remove('indet');
+      const pct = total>0 ? Math.max(0,Math.min(100,Math.round(done/total*100))) : 0;
+      if(fill) fill.style.width=pct+'%';
+      if(ct) ct.textContent = total>0 ? (done.toLocaleString()+' / '+total.toLocaleString()+'　'+pct+'%') : '';
+      w.setAttribute('aria-valuenow', String(pct));
+    }
+    if(ph){
+      const spin = (!w.classList.contains('done') && !w.classList.contains('err')) ? '<span class="ico"></span>' : '';
+      ph.innerHTML = spin + (phase? _esc(phase):'') + (sub? '　'+_esc(sub):'');
+    }
+  }
+  function _esc(s){ return String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+  function show(){ const w=q('progWrap'); if(w){ clearTimeout(hideT); w.classList.remove('err'); w.classList.remove('done'); w.classList.add('on'); w.setAttribute('aria-hidden','false'); } }
+  function hideSoon(ms){ const w=q('progWrap'); if(!w) return; clearTimeout(hideT); hideT=setTimeout(()=>{ w.classList.remove('on','err','done','indet'); w.setAttribute('aria-hidden','true'); }, ms); }
+  return {
+    active(){ const w=q('progWrap'); return !!(w && w.classList.contains('on')); },
+    begin(label, tot){ phase=label||''; total=(tot==null?0:tot); done=0; indet=(tot==null); show(); paint(); },
+    setTotal(t){ total=t||0; indet=false; paint(); },
+    setPhaseIndet(label){ phase=(label!=null?label:phase); indet=true; show(); paint(); },
+    phase(label, sub){ if(label!=null) phase=label; paint(sub); },
+    tick(sub){ done++; indet=false; paint(sub); },
+    add(n, sub){ done+=(n||0); indet=false; paint(sub); },
+    finish(msg){ const w=q('progWrap'); if(!w) return; indet=false; if(total<=0){total=1;} done=total;
+      if(msg!=null) phase=msg; w.classList.add('done'); paint(); hideSoon(900); },
+    fail(msg){ const w=q('progWrap'); if(!w) return; indet=false; if(msg!=null) phase=msg;
+      w.classList.add('err'); paint(); hideSoon(2600); },
+  };
+})();
+
 /* ---------- 生産性 定数(既存ツールから継承) ---------- */
 const CORE=['Receive','Stow to Prime','Pick','Pack','Ship','Outbound Prep','Transfer In and Stow'];
 const CORE_COLORS=['#1f5fa8','#0f9d8f','#c26a1e','#7b4fb0','#c0392b','#2f8f4e','#d9a406'];
@@ -486,7 +568,7 @@ const LS_CF_SITE='cf_site', LS_CF_BASE='cf_base', LS_CF_TOKEN='cf_token';
    ADMIN_PW       : 管理者モードのパスワード
    SITES_FALLBACK : クラウドの事業所リストが取れない時の初期候補 */
 const CF_BASE_EMBED  = "https://quality-sync.takahiro884.workers.dev";
-const CF_TOKEN_EMBED = "";   // ★ここにADMINトークンを貼る（例: "abcd1234..."）
+const CF_TOKEN_EMBED = "a80ed1f49bb6569cd915069a4134c205";   // ★ここにADMINトークンを貼る（例: "abcd1234..."）
 const ADMIN_PW       = "Gworker000";
 const SITES_FALLBACK = ["HFO1","TPY1","TPZ6","TPB2"];
 
@@ -861,10 +943,47 @@ async function processZip(buf, depth){
     if(/\.zip$/i.test(nm)){
       await processZip(f.data.buffer.slice(f.data.byteOffset,f.data.byteOffset+f.data.byteLength), depth+1);
     } else if(/\.(csv|txt)$/i.test(nm)){
+      Prog.phase('解析中', nm);
       await ingestFile(nm, f.data.buffer.slice(f.data.byteOffset,f.data.byteOffset+f.data.byteLength));
+      Prog.tick(nm);
     }
   }
 }
+
+/* ---------- 進捗用: 取込対象(csv/txt)の件数を事前に数える ----------
+   通常のフラットZIPは中央ディレクトリの「名前だけ」を読むので解凍しない＝高速。
+   入れ子ZIPがある時のみ、その入れ子を展開して正確に数える（稀）。 */
+function zipCentralNames(buf){
+  const dv=new DataView(buf), u8=new Uint8Array(buf), names=[];
+  let eocd=-1;
+  for(let i=u8.length-22;i>=0;i--){ if(dv.getUint32(i,true)===0x06054b50){eocd=i;break;} }
+  if(eocd<0) return names;
+  let cnt=dv.getUint16(eocd+10,true), off=dv.getUint32(eocd+16,true);
+  for(let k=0;k<cnt;k++){
+    if(dv.getUint32(off,true)!==0x02014b50) break;
+    const nlen=dv.getUint16(off+28,true), elen=dv.getUint16(off+30,true), clen=dv.getUint16(off+32,true);
+    names.push(new TextDecoder('utf-8').decode(u8.slice(off+46,off+46+nlen)));
+    off+=46+nlen+elen+clen;
+  }
+  return names;
+}
+async function countIngestables(buf, depth){
+  if(depth>5) return 0;
+  const names=zipCentralNames(buf);
+  const nested=names.some(n=>/\.zip$/i.test(n.split('/').pop()));
+  if(!nested){
+    let n=0; for(const nm0 of names){ const nm=nm0.split('/').pop(); if(/\.(csv|txt)$/i.test(nm)) n++; } return n;
+  }
+  // 入れ子あり → 実展開して正確にカウント
+  let n=0; const inner=await readZip(buf);
+  for(const f of inner){
+    const nm=f.fname.split('/').pop();
+    if(/\.zip$/i.test(nm)) n+=await countIngestables(f.data.buffer.slice(f.data.byteOffset,f.data.byteOffset+f.data.byteLength), depth+1);
+    else if(/\.(csv|txt)$/i.test(nm)) n++;
+  }
+  return n;
+}
+
 async function handleFiles(fileList){
   // 案1ガード: 担当外の事業所を表示中は取込不可（データ混在防止）
   const viewing=VIEW_SITE||CUR_SITE;
@@ -873,14 +992,27 @@ async function handleFiles(fileList){
     logLine('✕ 取込ブロック：'+viewing+' は閲覧のみ。担当事業所 '+CUR_SITE+' に切り替えてください。','er');
     return;
   }
+  // --- 進捗: 取込対象(csv/txt)の総数を事前カウント（+1 は保存・クラウド送信の末尾分）---
+  Prog.begin('取込準備中…', null);   // カウント中は総数不明＝アニメ表示
+  let _tot=0;
   for(const file of fileList){
     const lower=file.name.toLowerCase();
     try{
-      if(lower.endsWith('.zip')){ logLine('ZIP展開: '+file.name,'dim'); await processZip(await file.arrayBuffer(),0); }
-      else if(lower.endsWith('.csv')||lower.endsWith('.txt')){ await ingestFile(file.name, await file.arrayBuffer()); }
+      if(lower.endsWith('.zip')) _tot+=await countIngestables(await file.arrayBuffer(),0);
+      else if(lower.endsWith('.csv')||lower.endsWith('.txt')) _tot+=1;
+    }catch(e){ _tot+=1; }
+  }
+  Prog.setTotal(_tot+1);
+
+  for(const file of fileList){
+    const lower=file.name.toLowerCase();
+    try{
+      if(lower.endsWith('.zip')){ logLine('ZIP展開: '+file.name,'dim'); Prog.phase('ZIP展開中', file.name); await processZip(await file.arrayBuffer(),0); }
+      else if(lower.endsWith('.csv')||lower.endsWith('.txt')){ Prog.phase('解析中', file.name); await ingestFile(file.name, await file.arrayBuffer()); Prog.tick(file.name); }
       else logLine('対象外: '+file.name,'wn');
     }catch(err){ logLine('✕ '+file.name+'：'+err.message,'er'); }
   }
+  Prog.phase('保存中…', 'IndexedDBへ書き込み');
   // PPRを永続化
   if(pprPending.length){
     await putPPR(pprPending);
@@ -903,6 +1035,8 @@ async function handleFiles(fileList){
   await refreshState();
   // [追加] 取込完了後、Cloudflareへ自動アップロード（設定済み端末のみ動作）
   await cfAutoUpload();
+  Prog.tick();               // 末尾の +1（保存・送信）分を消化
+  Prog.finish('取込完了');
   toast('取り込み完了');
 }
 async function reloadFR(){ if(db) S.fr=await getAllFR(); }
@@ -1588,16 +1722,19 @@ async function cfAutoUpload(logTarget){
   const say=(msg,cls)=>{ if(logTarget) syncLog(msg,cls,logTarget); else logLine(msg,cls); };
   try{
     // 1) 集計（全期間）— computeQuality は site 指定で当該事業所のみ集計
+    Prog.phase('クラウド送信', '集計中…');
     const rep=await computeQuality(site, '', '', null);
     const siteDaily=toSiteDaily(rep, site);
     const workerDaily=toWorkerDaily(rep, site);
     if(siteDaily.length || workerDaily.length){
+      Prog.phase('クラウド送信', 'サマリを送信中…');
       const r=await cfPostSummary(site, siteDaily, workerDaily);
       if(!r.skipped) say('☁ サマリ送信 '+site+'：日別'+siteDaily.length+'行 / 作業者'+workerDaily.length+'行','ok');
     } else {
       say('☁ 送信対象のサマリがありません（集計結果が空）','wn');
     }
     // 2) 明細スナップショット（12週保持層）— 週キーは最新実績日基準
+    Prog.phase('クラウド送信', '明細を送信中…');
     const wk=isoWeekKey(rep.resolvedTo? new Date(rep.resolvedTo): new Date());
     const {snap}=await buildSnapshot();
     const r2=await cfPutRaw(site, wk, snap);
@@ -1714,19 +1851,25 @@ async function exportSnapshot(){
 
 /* 閲覧端末：スナップショットを読み込んでIndexedDBを丸ごと置換 */
 async function applySnapshot(u8, srcLabel){
+  // 進捗: 既にバーが動作中(起動/クラウド取得中)なら相乗り、単独呼び出し(手動読込)なら自前で開始・終了
+  const _owned = !Prog.active();
+  if(_owned) Prog.begin('データ適用', null);
+  Prog.setPhaseIndet('データを展開中…');
   const plain=await gunzip(u8);
   let snap;
   try{ snap=JSON.parse(new TextDecoder().decode(plain)); }
-  catch(e){ throw new Error('スナップショットを解析できません（ファイルが壊れている可能性）'); }
-  if(!snap._snap) throw new Error('スナップショット形式ではありません');
+  catch(e){ if(_owned) Prog.fail('適用失敗'); throw new Error('スナップショットを解析できません（ファイルが壊れている可能性）'); }
+  if(!snap._snap){ if(_owned) Prog.fail('適用失敗'); throw new Error('スナップショット形式ではありません'); }
 
   // ★置換：既存を消してから入れる。これで「消したはずのデータが残る」ことがない
+  Prog.setPhaseIndet('データを適用中…');
   for(const S of SYNC_STORES){
     await clearStore(S.store);
     const rows=snap[S.sheet]||[];
     if(rows.length) await writeStore(S.store, rows);
   }
   await loadMaster(); await reloadFR(); await reloadPPR(); await refreshState();
+  if(_owned) Prog.finish('適用完了');
   setAppliedAt(snap.at||'');       // 適用済みの版を記録（次回起動時の鮮度判定に使う）
   const counts=SYNC_STORES.map(S=>S.sheet+':'+(snap[S.sheet]||[]).length).join(' / ');
   const when=snap.at? new Date(snap.at).toLocaleString('ja-JP') : '不明';
@@ -3396,7 +3539,10 @@ async function importMasterCsv(file){
    初期化 / イベント
    ========================================================= */
 async function init(){
+  Prog.begin('起動中…', null);
+  Prog.setPhaseIndet('データベースを初期化中…');
   await openDB();
+  Prog.setPhaseIndet('マスタを読込中…');
   await loadMaster();
   await reloadFR();
   await reloadPPR();
@@ -3407,6 +3553,7 @@ async function init(){
   //   これにより「TPY1で入ったのにHFO1が残る」問題を防ぐ。
   const site=cfSite();
   logLine('[読込] 事業所 '+site+' のデータをクラウドから取得します','dim');
+  Prog.setPhaseIndet('クラウドから '+site+' のデータを取得中…');
   const r=await loadSiteData(site);
   if(r==='fail'){
     logLine('[読込] クラウド取得に失敗しました。ネットワーク/URLを確認してください。','er');
@@ -3415,6 +3562,7 @@ async function init(){
   }
   await reloadPPR();
   await refreshState();
+  if(r==='fail') Prog.fail('クラウド取得に失敗'); else Prog.finish('準備完了');
 
   const file=$('#file'), drop=$('#drop');
   file.addEventListener('change',()=>{ if(file.files.length) handleFiles([...file.files]); file.value=''; });
@@ -3478,15 +3626,18 @@ async function init(){
       if(!cfBase()){ syncLog('✕ Worker URL を入力してください','er','#cfLog'); return; }
       if(!cfToken()){ syncLog('✕ 書込トークンが未設定です（閲覧端末は送信できません）','er','#cfLog'); return; }
       btnP.disabled=true;
+      Prog.begin('クラウドアップロード', null);
       syncLog('☁ アップロード開始…（現在のデータを集計して送信します）','dim','#cfLog');
       try{
         await cfAutoUpload('#cfLog');
         syncLog('☁ アップロード完了','ok','#cfLog');
         // 送信後、クラウド側の件数を再確認
+        Prog.setPhaseIndet('クラウド側の件数を確認中…');
         const s=await fetch(cfBase()+'/summary?site='+encodeURIComponent(cfSite())+'&kind=site').then(x=>x.json()).catch(()=>null);
         if(s&&s.ok) syncLog('　クラウド側サマリ: 日別'+(s.rows?s.rows.length:0)+'行','dim','#cfLog');
+        Prog.finish('アップロード完了');
         toast('クラウドへアップロードしました');
-      }catch(e){ syncLog('✕ アップロード失敗：'+e.message,'er','#cfLog'); }
+      }catch(e){ syncLog('✕ アップロード失敗：'+e.message,'er','#cfLog'); Prog.fail('アップロード失敗'); }
       btnP.disabled=false;
     };
   }
