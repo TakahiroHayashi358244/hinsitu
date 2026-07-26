@@ -486,7 +486,7 @@ const LS_CF_SITE='cf_site', LS_CF_BASE='cf_base', LS_CF_TOKEN='cf_token';
    ADMIN_PW       : 管理者モードのパスワード
    SITES_FALLBACK : クラウドの事業所リストが取れない時の初期候補 */
 const CF_BASE_EMBED  = "https://quality-sync.takahiro884.workers.dev";
-const CF_TOKEN_EMBED = "308c40cc8b1df12102579a4bcfbf00c4d64dbb6119d60302";   // ★ここにADMINトークンを貼る（例: "abcd1234..."）
+const CF_TOKEN_EMBED = "a80ed1f49bb6569cd915069a4134c205";   // ★ここにADMINトークンを貼る（例: "abcd1234..."）
 const ADMIN_PW       = "Gworker000";
 const SITES_FALLBACK = ["HFO1","TPY1","TPZ6","TPB2"];
 
@@ -2347,6 +2347,7 @@ function buildDash(){
     {id:'combo',label:'品質 × 生産性',cls:'',fn:paneCombo},
     {id:'qual',label:'品質',cls:'qual',fn:paneQual},
     {id:'prod',label:'生産性',cls:'prod',fn:paneProd},
+    {id:'defects',label:'欠陥管理',cls:'qual',fn:paneDefects},
     {id:'files',label:'取り込み履歴',cls:'',fn:paneFiles},
     {id:'data',label:'データ管理',cls:'',fn:paneData},
   ];
@@ -2569,6 +2570,135 @@ function renderTradeoff(host){
 }
 
 /* [新] データ管理タブ: 必要ZIP / カバレッジ / 台帳 / PPR検算 */
+/* ═══════════════════════════════════════════════════════════
+   [段階4b] 欠陥管理タブ — 台帳D(defects)を直接読み書き
+   責任所在(process)/種別(type)/真因を編集 → PATCHで即保存
+   ═══════════════════════════════════════════════════════════ */
+const PROCESS_OPTS=['Receive','Stow','Pick'];
+const TYPE_OPTS=['Overage','Shortage','欠品','FPS'];
+const CAUSE_PRESETS=[
+  '',
+  '複数Unit Stow時の個数入力ミス（1個多く入力）',
+  '過小レシーブによるオーバーStow',
+  'StowToPrime研修中',
+];
+let DEFECTS_CACHE=[];
+
+async function cfGetDefects(site){
+  const base=cfBase();
+  const j=await fetch(base+'/ledger/defects?site='+encodeURIComponent(site)+'&t='+Date.now(),{cache:'no-store'}).then(r=>r.json());
+  return (j&&j.ok&&Array.isArray(j.rows))?j.rows:[];
+}
+async function cfPatchDefect(site, edit){
+  const base=cfBase(), token=cfToken();
+  const res=await fetch(base+'/ledger/defects?site='+encodeURIComponent(site),{
+    method:'PATCH',
+    headers:{'Content-Type':'application/json','Authorization':'Bearer '+token,'X-Site-Pass':cfPass()},
+    body:JSON.stringify({edits:[edit]})
+  });
+  if(!res.ok) throw new Error('PATCH '+res.status+' '+(await res.text()).slice(0,80));
+  return res.json();
+}
+
+function paneDefects(pane){
+  pane.innerHTML='';
+  const site=VIEW_SITE||CUR_SITE;
+  const writable=canWrite(site);
+
+  const bar=el('div'); bar.style.cssText='display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px';
+  const title=el('div'); title.innerHTML='<b>欠陥明細（責任所在・種別・真因の確定）</b>　<span style="font-size:12px;color:var(--mut)">'+site+(writable?'（編集可）':'（閲覧のみ）')+'</span>';
+  const reload=el('button','btn gho','再読込');
+  const filt=el('select'); ['全件','未確定のみ','確定済みのみ'].forEach(o=>{const op=el('option');op.value=o;op.textContent=o;filt.appendChild(op);});
+  const msg=el('span'); msg.style.cssText='font-size:12px;color:var(--mut)';
+  bar.appendChild(title); bar.appendChild(reload); bar.appendChild(filt); bar.appendChild(msg);
+  pane.appendChild(bar);
+
+  const kpiBox=el('div'); kpiBox.style.cssText='display:flex;gap:14px;flex-wrap:wrap;margin-bottom:12px';
+  pane.appendChild(kpiBox);
+
+  const tableWrap=el('div'); tableWrap.style.cssText='overflow:auto'; pane.appendChild(tableWrap);
+
+  function recalcKpi(){
+    // 台帳Dのフラグから工程別 欠陥qty合計を出す（分母は別途volume台帳が要るが、ここでは件数/数量の速報）
+    const byProc={Receive:0,Stow:0,Pick:0};
+    DEFECTS_CACHE.forEach(r=>{ if(byProc[r.process]!==undefined) byProc[r.process]+=(+r.qty||0); });
+    kpiBox.innerHTML='';
+    [['Stow欠陥数量',byProc.Stow,'#7c3aed'],['Pick欠陥数量',byProc.Pick,'#2563eb'],['Receive欠陥数量',byProc.Receive,'#059669'],['欠陥件数',DEFECTS_CACHE.length,'#475569']].forEach(([lbl,v,c])=>{
+      const card=el('div'); card.style.cssText='border:1px solid var(--line);border-radius:10px;padding:8px 14px;background:#fff';
+      card.innerHTML='<div style="font-size:11px;color:var(--mut)">'+lbl+'</div><div style="font-size:20px;font-weight:700;color:'+c+'">'+v.toLocaleString()+'</div>';
+      kpiBox.appendChild(card);
+    });
+  }
+
+  function render(){
+    const f=filt.value;
+    let rows=DEFECTS_CACHE.slice().sort((a,b)=>a.d<b.d?1:a.d>b.d?-1:0); // 新しい順
+    if(f==='未確定のみ') rows=rows.filter(r=>!(r.updatedBy&&r.updatedBy!=='ingest'));
+    if(f==='確定済みのみ') rows=rows.filter(r=>r.updatedBy&&r.updatedBy!=='ingest');
+    msg.textContent=rows.length+'件表示 / 全'+DEFECTS_CACHE.length+'件';
+
+    const t=el('table','tbl'); t.style.fontSize='12px';
+    const thead=el('thead'); const htr=el('tr');
+    ['発生日','責任所在','種別','作業者','エリア','商品','数量','真因(定型)','メモ','状態'].forEach(h=>{const th=el('th');th.textContent=h;htr.appendChild(th);});
+    thead.appendChild(htr); t.appendChild(thead);
+    const tb=el('tbody');
+    rows.forEach(r=>{
+      const tr=el('tr');
+      const confirmed=(r.updatedBy&&r.updatedBy!=='ingest');
+      // 発生日
+      let td=el('td'); td.textContent=r.d||''; tr.appendChild(td);
+      // 責任所在（ドロップダウン）
+      td=el('td'); const selP=el('select'); PROCESS_OPTS.forEach(o=>{const op=el('option');op.value=o;op.textContent=o;if(o===r.process)op.selected=true;selP.appendChild(op);});
+      selP.disabled=!writable; td.appendChild(selP); tr.appendChild(td);
+      // 種別
+      td=el('td'); const selT=el('select'); TYPE_OPTS.forEach(o=>{const op=el('option');op.value=o;op.textContent=o;if(o===r.type)op.selected=true;selT.appendChild(op);});
+      selT.disabled=!writable; td.appendChild(selT); tr.appendChild(td);
+      // 作業者
+      td=el('td'); td.textContent=(r.name||r.acct||''); tr.appendChild(td);
+      // エリア
+      td=el('td'); td.textContent=r.area||''; tr.appendChild(td);
+      // 商品
+      td=el('td'); td.textContent=(r.item||'').slice(0,20); td.title=r.item||''; tr.appendChild(td);
+      // 数量
+      td=el('td'); td.textContent=r.qty; td.style.textAlign='right'; tr.appendChild(td);
+      // 真因プリセット
+      td=el('td'); const selC=el('select'); CAUSE_PRESETS.forEach(o=>{const op=el('option');op.value=o;op.textContent=o||'(未選択)';if(o===r.causeType)op.selected=true;selC.appendChild(op);});
+      selC.disabled=!writable; td.appendChild(selC); tr.appendChild(td);
+      // 真因メモ（自由記述）
+      td=el('td'); const inpM=el('input'); inpM.type='text'; inpM.value=r.cause||''; inpM.placeholder='任意'; inpM.style.cssText='width:120px;padding:3px 6px;border:1px solid #cfd8e6;border-radius:6px;font-size:12px'; inpM.disabled=!writable; td.appendChild(inpM); tr.appendChild(td);
+      // 状態
+      td=el('td'); const badge=el('span'); badge.textContent=confirmed?'確定':'未確定'; badge.style.cssText='font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;'+(confirmed?'background:#dcfce7;color:#166534':'background:#f1f5f9;color:#64748b'); td.appendChild(badge); tr.appendChild(td);
+
+      // 保存処理（変更で即PATCH）
+      const save=async()=>{
+        if(!writable) return;
+        const edit={id:r.id, process:selP.value, type:selT.value, causeType:selC.value, cause:inpM.value, by:(IS_ADMIN?'admin':site)};
+        try{
+          msg.textContent='保存中…';
+          await cfPatchDefect(site, edit);
+          // キャッシュ更新
+          Object.assign(r, {process:selP.value,type:selT.value,causeType:selC.value,cause:inpM.value,updatedBy:edit.by});
+          badge.textContent='確定'; badge.style.cssText='font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;background:#dcfce7;color:#166534';
+          recalcKpi(); msg.textContent='保存しました（'+r.id.slice(0,12)+'…）';
+        }catch(e){ msg.textContent='保存失敗: '+e.message; }
+      };
+      selP.onchange=save; selT.onchange=save; selC.onchange=save; inpM.onchange=save;
+      tb.appendChild(tr);
+    });
+    t.appendChild(tb); tableWrap.innerHTML=''; tableWrap.appendChild(t);
+  }
+
+  async function load(){
+    msg.textContent='読み込み中…';
+    try{
+      DEFECTS_CACHE=await cfGetDefects(site);
+      recalcKpi(); render();
+    }catch(e){ msg.textContent='読み込み失敗: '+e.message; }
+  }
+  reload.onclick=load; filt.onchange=render;
+  load();
+}
+
 function paneData(pane){
   pane.innerHTML='';
   const host=el('div'); host.id='dataHost';
