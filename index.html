@@ -2418,32 +2418,37 @@ async function populateSitesThenCompute(siteSel){
   recalcQuality();
 }
 async function recalcQuality(){
-  const siteSel=$('#qSite'); if(!siteSel) return;
+  const siteSel=$('#qSite'); if(!siteSel){ console.warn('[recalc] qSite なし'); return; }
   const site=siteSel.value, from=$('#qFrom').value, to=$('#qTo').value;
+  console.log('[recalc] 開始 site=',site,'from=',from,'to=',to);
   if(!site){ QReport=null; renderQualPanes(); return; }
   QReport=await computeQuality(site,from,to);
-  // ★段階5: 欠陥フラグを反映した台帳DPMOで、KPIのDPMO値を上書き（欠陥管理タブと一致させる）
+  console.log('[recalc] computeQuality完了 stowDpmo(旧)=',QReport&&QReport.kpi&&QReport.kpi.stowDpmo);
   await overlayLedgerDpmo(site, from, to);
+  console.log('[recalc] overlay後 stowDpmo=',QReport&&QReport.kpi&&QReport.kpi.stowDpmo,'ledger適用=',QReport&&QReport._ledgerApplied);
   applyResolvedPeriod();
   renderQualPanes();
   renderGapBanner();
   renderTradeoffInto();
   refreshDataPane();
+  console.log('[recalc] 描画完了');
 }
 
 /* 台帳(欠陥フラグ反映済み)からDPMOを計算し、QReport.kpi を上書きする。
    表示構造は既存のまま、DPMOの値だけ台帳基準に統一する。 */
 async function overlayLedgerDpmo(site, from, to){
-  if(!QReport||!QReport.kpi) return;
+  if(!QReport||!QReport.kpi){ console.warn('[overlay] QReport無し'); return; }
   try{
-    const base=cfBase(); if(!base) return;
+    const base=cfBase(); if(!base){ console.warn('[overlay] base無し'); return; }
     const [defects, volume]=await Promise.all([
       fetch(base+'/ledger/defects?site='+encodeURIComponent(site)+'&t='+Date.now(),{cache:'no-store'}).then(r=>r.json()).then(j=>j&&j.ok?j.rows:[]).catch(()=>[]),
       fetch(base+'/ledger?site='+encodeURIComponent(site)+'&kind=volume&t='+Date.now(),{cache:'no-store'}).then(r=>r.json()).then(j=>j&&j.ok?j.rows:[]).catch(()=>[])
     ]);
-    if(!defects.length && !volume.length) return; // 台帳が無ければ従来値のまま
+    console.log('[overlay] 台帳取得 欠陥=',defects.length,'処理量日数=',volume.length);
+    if(!defects.length && !volume.length){ console.warn('[overlay] 台帳が空。上書きせず'); return; }
     const rep=computeFromLedgers({volume, defects, worker:[], process:[]}, from, to);
     const k=rep.kpi;
+    console.log('[overlay] 台帳DPMO stow=',k.stowDpmo,'pick=',k.pickDpmo,'欠品=',k.shortageDpmo);
     // 既存パネルが読むフィールドを台帳値で上書き
     QReport.kpi.stowDpmo=k.stowDpmo;
     QReport.kpi.pickDpmo=k.pickDpmo;
