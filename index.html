@@ -2583,7 +2583,13 @@ const CAUSE_PRESETS=[
   'StowToPrime研修中',
 ];
 let DEFECTS_CACHE=[];
+let VOLUME_CACHE=[];
 
+async function cfGetLedger(site, kind){
+  const base=cfBase();
+  const j=await fetch(base+'/ledger?site='+encodeURIComponent(site)+'&kind='+kind+'&t='+Date.now(),{cache:'no-store'}).then(r=>r.json()).catch(()=>null);
+  return (j&&j.ok&&Array.isArray(j.rows))?j.rows:[];
+}
 async function cfGetDefects(site){
   const base=cfBase();
   const j=await fetch(base+'/ledger/defects?site='+encodeURIComponent(site)+'&t='+Date.now(),{cache:'no-store'}).then(r=>r.json());
@@ -2619,15 +2625,30 @@ function paneDefects(pane){
   const tableWrap=el('div'); tableWrap.style.cssText='overflow:auto'; pane.appendChild(tableWrap);
 
   function recalcKpi(){
-    // 台帳Dのフラグから工程別 欠陥qty合計を出す（分母は別途volume台帳が要るが、ここでは件数/数量の速報）
+    // 台帳D(フラグ)＋台帳A(分母)からDPMOを即算出（段階3の計算関数を使用）
+    const rep=computeFromLedgers({volume:VOLUME_CACHE, defects:DEFECTS_CACHE, worker:[], process:[]});
+    const k=rep.kpi;
     const byProc={Receive:0,Stow:0,Pick:0};
     DEFECTS_CACHE.forEach(r=>{ if(byProc[r.process]!==undefined) byProc[r.process]+=(+r.qty||0); });
     kpiBox.innerHTML='';
-    [['Stow欠陥数量',byProc.Stow,'#7c3aed'],['Pick欠陥数量',byProc.Pick,'#2563eb'],['Receive欠陥数量',byProc.Receive,'#059669'],['欠陥件数',DEFECTS_CACHE.length,'#475569']].forEach(([lbl,v,c])=>{
-      const card=el('div'); card.style.cssText='border:1px solid var(--line);border-radius:10px;padding:8px 14px;background:#fff';
-      card.innerHTML='<div style="font-size:11px;color:var(--mut)">'+lbl+'</div><div style="font-size:20px;font-weight:700;color:'+c+'">'+v.toLocaleString()+'</div>';
+    const cards=[
+      ['Stow DPMO', k.stowDpmo, '#7c3aed', '欠陥'+byProc.Stow+' ÷ '+k.stowU.toLocaleString()+'U'],
+      ['Pick DPMO', k.pickDpmo, '#2563eb', '欠陥'+byProc.Pick+' ÷ '+k.pickU.toLocaleString()+'U'],
+      ['Receive DPMO', k.rcvDpmo, '#059669', '欠陥'+byProc.Receive+' ÷ '+k.rcvU.toLocaleString()+'U'],
+      ['欠陥件数', DEFECTS_CACHE.length, '#475569', '全'+DEFECTS_CACHE.length+'件'],
+    ];
+    cards.forEach(([lbl,v,c,sub])=>{
+      const card=el('div'); card.style.cssText='border:1px solid var(--line);border-radius:10px;padding:8px 14px;background:#fff;min-width:130px';
+      card.innerHTML='<div style="font-size:11px;color:var(--mut)">'+lbl+'</div>'+
+        '<div style="font-size:22px;font-weight:700;color:'+c+'">'+(typeof v==='number'?v.toLocaleString():v)+'</div>'+
+        '<div style="font-size:10px;color:#94a3b8">'+sub+'</div>';
       kpiBox.appendChild(card);
     });
+    if(!VOLUME_CACHE.length){
+      const warn=el('div'); warn.style.cssText='font-size:11px;color:#b45309;align-self:center';
+      warn.textContent='※ 分母(処理量台帳)が未取得のためDPMOは0表示。台帳をアップロードすると表示されます。';
+      kpiBox.appendChild(warn);
+    }
   }
 
   function render(){
@@ -2645,6 +2666,8 @@ function paneDefects(pane){
     rows.forEach(r=>{
       const tr=el('tr');
       const confirmed=(r.updatedBy&&r.updatedBy!=='ingest');
+      const paintRow=on=>{ tr.style.background = on ? '#eafaf0' : ''; };
+      paintRow(confirmed);
       // 発生日
       let td=el('td'); td.textContent=r.d||''; tr.appendChild(td);
       // 責任所在（ドロップダウン）
@@ -2679,6 +2702,7 @@ function paneDefects(pane){
           // キャッシュ更新
           Object.assign(r, {process:selP.value,type:selT.value,causeType:selC.value,cause:inpM.value,updatedBy:edit.by});
           badge.textContent='確定'; badge.style.cssText='font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;background:#dcfce7;color:#166534';
+          paintRow(true);
           recalcKpi(); msg.textContent='保存しました（'+r.id.slice(0,12)+'…）';
         }catch(e){ msg.textContent='保存失敗: '+e.message; }
       };
@@ -2691,7 +2715,7 @@ function paneDefects(pane){
   async function load(){
     msg.textContent='読み込み中…';
     try{
-      DEFECTS_CACHE=await cfGetDefects(site);
+      [DEFECTS_CACHE, VOLUME_CACHE]=await Promise.all([cfGetDefects(site), cfGetLedger(site,'volume')]);
       recalcKpi(); render();
     }catch(e){ msg.textContent='読み込み失敗: '+e.message; }
   }
