@@ -1402,11 +1402,11 @@ async function buildDefects(site){
     const id='MF|'+site+'|'+(r._date||'')+'|'+(r.bin_module||r.drop_zone_name||'')+'|'+(r.fnsku||r.asin||i);
     out.push({
       id, d:r._date, site,
-      process:'Pick', type:'欠品',
+      process:'欠品', type:'欠品',
       acct:'', name:'',
       area:r.bin_module||r.drop_zone_name||'', item:r.title||r.asin||'',
       qty:num(r.gross_units||r.quantity),
-      origProcess:'Pick', origType:'欠品',
+      origProcess:'欠品', origType:'欠品',
       causeType:'', cause:'', updatedBy:'ingest'
     });
   });
@@ -1531,17 +1531,18 @@ function computeFromLedgers(L, from, to){
 
   // ---- 分子（defects の qty を process 別）----
   const qtyByProc=proc=>sum(df.filter(r=>r.process===proc),r=>r.qty);
-  const stowQ=qtyByProc('Stow'), pickQ=qtyByProc('Pick'), rcvQ=qtyByProc('Receive');
+  const stowQ=qtyByProc('Stow'), pickQ=qtyByProc('Pick'), rcvQ=qtyByProc('Receive'), shortageQ=qtyByProc('欠品');
   // Pick内訳（type別：欠品 vs 作業ミス系）— 参考表示用
   const pickShelfQ=sum(df.filter(r=>r.process==='Pick'&&r.type==='欠品'),r=>r.qty);
   const pickWorkQ =sum(df.filter(r=>r.process==='Pick'&&r.type!=='欠品'),r=>r.qty);
 
   const kpi={
     stowU, pickU, rcvU, allU,
-    stowQ, pickQ, rcvQ,
+    stowQ, pickQ, rcvQ, shortageQ,
     stowDpmo:DPMO(stowQ,stowU),
     pickDpmo:DPMO(pickQ,pickU),
     rcvDpmo:DPMO(rcvQ,rcvU),
+    shortageDpmo:DPMO(shortageQ,pickU),   // 欠品DPMO = 欠品qty ÷ Pick処理量
     pickShelfDpmo:DPMO(pickShelfQ,pickU),
     pickWorkDpmo:DPMO(pickWorkQ,pickU),
   };
@@ -2574,7 +2575,7 @@ function renderTradeoff(host){
    [段階4b] 欠陥管理タブ — 台帳D(defects)を直接読み書き
    責任所在(process)/種別(type)/真因を編集 → PATCHで即保存
    ═══════════════════════════════════════════════════════════ */
-const PROCESS_OPTS=['Receive','Stow','Pick'];
+const PROCESS_OPTS=['Receive','Stow','Pick','欠品'];
 const TYPE_OPTS=['Overage','Shortage','欠品','FPS'];
 const CAUSE_PRESETS=[
   '',
@@ -2628,12 +2629,13 @@ function paneDefects(pane){
     // 台帳D(フラグ)＋台帳A(分母)からDPMOを即算出（段階3の計算関数を使用）
     const rep=computeFromLedgers({volume:VOLUME_CACHE, defects:DEFECTS_CACHE, worker:[], process:[]});
     const k=rep.kpi;
-    const byProc={Receive:0,Stow:0,Pick:0};
+    const byProc={Receive:0,Stow:0,Pick:0,'欠品':0};
     DEFECTS_CACHE.forEach(r=>{ if(byProc[r.process]!==undefined) byProc[r.process]+=(+r.qty||0); });
     kpiBox.innerHTML='';
     const cards=[
       ['Stow DPMO', k.stowDpmo, '#7c3aed', '欠陥'+byProc.Stow+' ÷ '+k.stowU.toLocaleString()+'U'],
       ['Pick DPMO', k.pickDpmo, '#2563eb', '欠陥'+byProc.Pick+' ÷ '+k.pickU.toLocaleString()+'U'],
+      ['欠品 DPMO', k.shortageDpmo, '#dc2626', '欠品'+byProc['欠品']+' ÷ '+k.pickU.toLocaleString()+'U'],
       ['Receive DPMO', k.rcvDpmo, '#059669', '欠陥'+byProc.Receive+' ÷ '+k.rcvU.toLocaleString()+'U'],
       ['欠陥件数', DEFECTS_CACHE.length, '#475569', '全'+DEFECTS_CACHE.length+'件'],
     ];
