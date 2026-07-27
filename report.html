@@ -318,6 +318,103 @@ function compute(site,from,to){
          ppl:new Set(jis.map(r=>r.person)).size}};
 }
 
+/* =========================================================
+   [取込ツール一致] クラウド台帳(欠陥管理=正)から DPMO を算出し、
+   画面KPI・PowerPoint自動入力を取込ツール本体と同じ値に統一する。
+   ========================================================= */
+const CF_BASE="https://quality-sync.takahiro884.workers.dev";
+function computeFromLedgers(L, from, to){
+  const inRange=d=>(!from||d>=from)&&(!to||d<=to);
+  const vol=(L.volume||[]).filter(r=>inRange(r.d));
+  const wv=(L.worker||[]).filter(r=>inRange(r.d));
+  const pr=(L.process||[]).filter(r=>inRange(r.d));
+  const df=(L.defects||[]).filter(r=>inRange(r.d));
+
+  const sum=(rows,f)=>rows.reduce((s,r)=>s+(+f(r)||0),0);
+  const DPMO=(n,d)=>d?Math.round(n/d*1e6):0;
+
+  // ---- 分母合計 ----
+  const stowU=sum(vol,r=>r.stowU), pickU=sum(vol,r=>r.pickU), rcvU=sum(vol,r=>r.receiveU), allU=sum(vol,r=>r.allU);
+
+  // ---- 分子（defects の qty を process 別）----
+  const qtyByProc=proc=>sum(df.filter(r=>r.process===proc),r=>r.qty);
+  const stowQ=qtyByProc('Stow'), pickQ=qtyByProc('Pick'), rcvQ=qtyByProc('Receive'), shortageQ=qtyByProc('欠品');
+  // Pick内訳（type別：欠品 vs 作業ミス系）— 参考表示用
+  const pickShelfQ=sum(df.filter(r=>r.process==='Pick'&&r.type==='欠品'),r=>r.qty);
+  const pickWorkQ =sum(df.filter(r=>r.process==='Pick'&&r.type!=='欠品'),r=>r.qty);
+
+  const kpi={
+    stowU, pickU, rcvU, allU,
+    stowQ, pickQ, rcvQ, shortageQ,
+    stowDpmo:DPMO(stowQ,stowU),
+    pickDpmo:DPMO(pickQ,pickU),
+    rcvDpmo:DPMO(rcvQ,rcvU),
+    shortageDpmo:DPMO(shortageQ,pickU),   // 欠品DPMO = 欠品qty ÷ Pick処理量
+    pickShelfDpmo:DPMO(pickShelfQ,pickU),
+    pickWorkDpmo:DPMO(pickWorkQ,pickU),
+  };
+
+  // ---- 日別推移 ----
+  const days=[...new Set([...vol.map(r=>r.d), ...df.map(r=>r.d)])].filter(Boolean).sort();
+  const volByDate={}; vol.forEach(r=>{ volByDate[r.d]=r; });
+  const daily=days.map(d=>{
+    const v=volByDate[d]||{stowU:0,pickU:0,receiveU:0,allU:0,ppl:0};
+    const dd=df.filter(r=>r.d===d);
+    const sQ=sum(dd.filter(r=>r.process==='Stow'),r=>r.qty);
+    const pQ=sum(dd.filter(r=>r.process==='Pick'),r=>r.qty);
+    const rQ=sum(dd.filter(r=>r.process==='Receive'),r=>r.qty);
+    return {date:d, su:v.stowU, ru:v.receiveU, pu:v.pickU, tu:v.allU, ppl:v.ppl||0,
+      stowQ:sQ, pickQ:pQ, rcvQ:rQ,
+      stowDpmo:DPMO(sQ,v.stowU), pickDpmo:DPMO(pQ,v.pickU), rcvDpmo:DPMO(rQ,v.receiveU)};
+  });
+
+  // ---- 作業者別（分子=その人のdefects qty[process別] / 分母=worker.stowU等）----
+  const wmap={};
+  wv.forEach(r=>{ const k=r.acct; const o=wmap[k]||(wmap[k]={acct:k,name:r.name||'',stowU:0,pickU:0,rcvU:0,stowQ:0,pickQ:0,rcvQ:0,defs:0}); o.stowU+=r.stowU; o.pickU+=r.pickU; o.rcvU+=r.receiveU; });
+  df.forEach(r=>{ if(!r.acct) return; const o=wmap[r.acct]||(wmap[r.acct]={acct:r.acct,name:r.name||'',stowU:0,pickU:0,rcvU:0,stowQ:0,pickQ:0,rcvQ:0,defs:0});
+    if(r.process==='Stow')o.stowQ+=r.qty; else if(r.process==='Pick')o.pickQ+=r.qty; else if(r.process==='Receive')o.rcvQ+=r.qty; o.defs++; });
+  const workers=Object.values(wmap).map(o=>({...o,
+    stowDpmo:DPMO(o.stowQ,o.stowU), pickDpmo:DPMO(o.pickQ,o.pickU), rcvDpmo:DPMO(o.rcvQ,o.rcvU)
+  })).filter(o=>o.defs>0||o.stowU>0||o.pickU>0)
+     .sort((a,b)=>b.stowDpmo-a.stowDpmo);
+
+  // ---- 工程別（分母=process台帳、分子=defects qty[process別]）----
+  const procAgg={}; pr.forEach(r=>{ const o=procAgg[r.proc]||(procAgg[r.proc]={proc:r.proc,vol:0,hours:0}); o.vol+=r.vol; o.hours+=r.hours; });
+  const procRows=Object.values(procAgg).map(o=>({...o, uph:o.hours?+(o.vol/o.hours).toFixed(1):0}));
+
+  const rf=days[0]||from||'', rt=days[days.length-1]||to||'';
+  return {kpi, daily, workers, process:procRows, defects:df, resolvedFrom:rf, resolvedTo:rt, days};
+}
+async function overlayFromLedgers(site,from,to){
+  if(!CF_BASE||!site) return false;
+  try{
+    const g=k=>fetch(CF_BASE+'/ledger?site='+encodeURIComponent(site)+'&kind='+k+'&t='+Date.now(),{cache:'no-store'})
+      .then(r=>r.json()).then(j=>j&&j.ok?(j.rows||[]):[]).catch(()=>[]);
+    const gd=fetch(CF_BASE+'/ledger/defects?site='+encodeURIComponent(site)+'&t='+Date.now(),{cache:'no-store'})
+      .then(r=>r.json()).then(j=>j&&j.ok?(j.rows||[]):[]).catch(()=>[]);
+    const [volume,defects]=await Promise.all([g('volume'),gd]);
+    if(!defects.length && !volume.length) return false;
+    const rep=computeFromLedgers({volume,defects,worker:[],process:[]}, from, to);
+    const k=rep.kpi;
+    // 取込ツールと同一定義: Stow / Pick作業ミス=全Pick / Pick欠陥=棚欠品(process'欠品')
+    R.kpi.stowDpmo=k.stowDpmo;
+    R.kpi.workDpmo=k.pickDpmo;
+    R.kpi.shelfDpmo=k.shortageDpmo;
+    R.kpi.stowU=k.stowU; R.kpi.pickU=k.pickU; R.kpi.ufU=k.pickU;
+    R.kpi.sipQ=k.stowQ; R.kpi.pmU=k.pickQ; R.kpi.mfU=k.shortageQ;
+    // 欠陥内訳は台帳defects(編集フラグ反映)から（PowerPointのDefectサマリー用）
+    const inR=d=>(!from||d>=from)&&(!to||d<=to);
+    const df=defects.filter(r=>inR(r.d));
+    R.raw={
+      sipsddr:  df.filter(r=>r.process==='Stow').map(r=>({symptoms:r.type})),
+      pickmiss: df.filter(r=>r.process==='Pick').map(r=>({error_type:r.type})),
+      missingfloor: df.filter(r=>r.process==='欠品').map(()=>({}))
+    };
+    R._fromLedger=true;
+    return true;
+  }catch(e){ return false; }
+}
+
 /* ---- 出力項目の定義 ---- */
 const ITEMS=[
   {id:'cover', t:'表紙', d:'タイトル・対象サイト・期間', always:true, has:()=>true},
@@ -477,6 +574,7 @@ function renderSummary(){
 async function recompute(){
   const site=$('#site').value, from=$('#from').value, to=$('#to').value;
   R=compute(site,from,to);
+  await overlayFromLedgers(site,from,to);   // 取込ツール本体と同じ台帳値(欠陥管理=正)で上書き
   renderSummary(); renderItems();
 }
 
@@ -762,9 +860,10 @@ async function generate(){
   /* ===== Slide 4: 02 プロセスミスレート（自動入力: Stow/Pick率） ===== */
   {const s=pptx.addSlide(); topbar(s); section(s,'02','プロセスミスレート','Process Miss Rate');
    const K=R.kpi;
+   // 取込ツールの表示DPMOと一致させる（率% = DPMO/10000）。Pick = 全Pick(Pick作業ミスDPMO)。
    const cards=[['Receive','レシーブ',null],
-     ['Stow','ストウ',pct(K.sipQ,K.stowU)],
-     ['Pick','ピック',pct((K.pmU+K.mfU),(K.ufU||K.pickU))]];
+     ['Stow','ストウ', K.stowDpmo!=null?K.stowDpmo/10000:null],
+     ['Pick','ピック', K.workDpmo!=null?K.workDpmo/10000:null]];
    cards.forEach((c,i)=>{const x=0.4+i*3.15,w=2.95,y=1.05,h=2.75;
      s.addShape(RR,{x,y,w,h,rectRadius:0.06,fill:{color:CARD},line:{color:'E6E9ED'}});
      s.addText(c[0],{x,y:y+0.15,w,h:0.35,align:'center',bold:true,color:NAVY,fontSize:17,fontFace:F});
