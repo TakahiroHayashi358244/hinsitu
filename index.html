@@ -241,7 +241,7 @@ tr.out td{color:var(--mut);font-style:italic}
   <div class="top">
     <div>
       <div class="title" id="mainTitle">品質×生産性 統合ダッシュボード</div>
-      <div class="sub">DPMO（品質）と UPH（生産性）を1つのツールで。CSV / ZIP をドラッグ&ドロップ、ヘッダーで自動判別。<b>v153</b>：欠陥管理タブ改良——確定ボタンを「状態」列として発生日の右横に移動（横スクロール不要）、行クリックで詳細ポップアップ（クリック行に被らない位置に表示）。＋起動高速化（5c）／品質タブ台帳ベース化（5a）／DPMO定義を欠陥管理に統一。全期間なら品質画面＝欠陥管理で一致。</div>
+      <div class="sub">DPMO（品質）と UPH（生産性）を1つのツールで。CSV / ZIP をドラッグ&ドロップ、ヘッダーで自動判別。<b>v154</b>：欠陥管理タブ——確定ボタンを発生日の右横に移動＋行クリックで詳細ポップアップ＋書き込み時に事業所パスコードをその場で入力・保存し bad passcode でも再入力して自動再試行（担当端末が管理者モードに入らず設定可）。＋起動高速化（5c）／品質タブ台帳ベース（5a）／DPMO定義を欠陥管理に統一。</div>
     </div>
     <div style="display:flex;flex-direction:row;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end">
       <div id="siteChip" style="font-size:13px;font-weight:700;padding:6px 14px;border-radius:999px;background:#1f3a5f;color:#fff;white-space:nowrap"></div>
@@ -568,7 +568,7 @@ const LS_CF_SITE='cf_site', LS_CF_BASE='cf_base', LS_CF_TOKEN='cf_token';
    ADMIN_PW       : 管理者モードのパスワード
    SITES_FALLBACK : クラウドの事業所リストが取れない時の初期候補 */
 const CF_BASE_EMBED  = "https://quality-sync.takahiro884.workers.dev";
-const CF_TOKEN_EMBED = "a80ed1f49bb6569cd915069a4134c205";   // ★ここにADMINトークンを貼る（例: "abcd1234..."）
+const CF_TOKEN_EMBED = "";   // ★ここにADMINトークンを貼る（例: "abcd1234..."）
 const ADMIN_PW       = "Gworker000";
 const SITES_FALLBACK = ["HFO1","TPY1","TPZ6","TPB2"];
 
@@ -589,6 +589,29 @@ function cfSetToken(v){ try{ localStorage.setItem(LS_CF_TOKEN, (v||'').trim()); 
 const LS_CF_PASS='cf_passcode';
 function cfPass(){ try{ return localStorage.getItem(LS_CF_PASS)||''; }catch(e){ return ''; } }
 function cfSetPass(v){ try{ localStorage.setItem(LS_CF_PASS, (v||'').trim()); }catch(e){} }
+/* [段階5] 書き込み用の事業所パスコードをその場で入力・保存（担当端末が管理者モードに入らず設定できるように）。
+   戻り値: 有効なパスコード文字列 / '' はキャンセル。 */
+function ensurePasscode(force){
+  const cur=cfPass();
+  if(cur && !force) return cur;
+  const site=(typeof VIEW_SITE!=='undefined'&&VIEW_SITE)||cfSite();
+  const v=prompt('事業所「'+site+'」への書き込みには事業所パスコードが必要です。\nWorker に登録した SITE_PASSCODE を入力してください（この端末に保存されます）：', cur||'');
+  if(v===null) return '';
+  cfSetPass(v); return cfPass();
+}
+/* 書き込み処理をパスコード付きで実行。未設定なら入力を促し、bad passcode(403)なら再入力して1回だけ再試行。 */
+async function withPasscodeRetry(fn){
+  if(!cfPass()){ if(!ensurePasscode()) throw new Error('事業所パスコードが未設定です'); }
+  try{ return await fn(); }
+  catch(err){
+    const m=(err&&err.message)||'';
+    if(/passcode/i.test(m) || /\b403\b/.test(m)){
+      if(!ensurePasscode(true)) throw new Error('事業所パスコードが必要です（保存中止）');
+      return await fn();   // 新しいパスコードで1回だけ再試行
+    }
+    throw err;
+  }
+}
 
 // この端末が site に書き込めるか（案1: 選択した事業所のみ / 管理者は全部）
 function canWrite(site){ return IS_ADMIN || (site && site===CUR_SITE); }
@@ -2977,7 +3000,14 @@ function paneDefects(pane){
   const filt=el('select'); ['全件','未確定のみ','確定済みのみ'].forEach(o=>{const op=el('option');op.value=o;op.textContent=o;filt.appendChild(op);});
   const bulkBtn=el('button','btn gho','表示中の未確定を一括確定');
   const msg=el('span'); msg.style.cssText='font-size:12px;color:var(--mut)';
-  bar.appendChild(title); bar.appendChild(reload); bar.appendChild(filt); bar.appendChild(bulkBtn); bar.appendChild(msg);
+  bar.appendChild(title); bar.appendChild(reload); bar.appendChild(filt); bar.appendChild(bulkBtn);
+  if(writable){
+    const pcBtn=el('button','btn gho', cfPass()?'パスコード変更':'パスコード設定');
+    pcBtn.title='この端末の事業所パスコードを設定（書き込みに必要。Workerの SITE_PASSCODE と一致が必要）';
+    pcBtn.onclick=()=>{ const v=ensurePasscode(true); pcBtn.textContent=cfPass()?'パスコード変更':'パスコード設定'; msg.textContent=v?'パスコードを保存しました':'キャンセルしました'; };
+    bar.appendChild(pcBtn);
+  }
+  bar.appendChild(msg);
   pane.appendChild(bar);
 
   const kpiBox=el('div'); kpiBox.style.cssText='display:flex;gap:14px;flex-wrap:wrap;margin-bottom:12px';
@@ -3064,7 +3094,7 @@ function paneDefects(pane){
         const edit={id:r.id, process:selP.value, type:selT.value, causeType:selC.value, cause:inpM.value, by:(IS_ADMIN?'admin':site)};
         try{
           msg.textContent='保存中…';
-          await cfPatchDefect(site, edit);
+          await withPasscodeRetry(()=>cfPatchDefect(site, edit));
           Object.assign(r, {process:selP.value,type:selT.value,causeType:selC.value,cause:inpM.value,updatedBy:edit.by});
           badge.textContent='確定'; badge.style.cssText='font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;background:#dcfce7;color:#166534';
           const ob=tdState.querySelector('button'); if(ob) ob.remove();
@@ -3107,16 +3137,19 @@ function paneDefects(pane){
     bulkBtn.disabled=true; msg.textContent='一括確定中… 0/'+targets.length;
     const by=(IS_ADMIN?'admin':site);
     const edits=targets.map(r=>({id:r.id,process:r.process,type:r.type,causeType:r.causeType||'',cause:r.cause||'',by}));
-    try{
-      // Workerは配列で複数editを受けるので1リクエストで送る
-      const base=cfBase();
-      const res=await fetch(base+'/ledger/defects?site='+encodeURIComponent(site),{
+    // Workerは配列で複数editを受けるので1リクエストで送る。cfPass()は都度読むのでパスコード再入力後の再試行も反映される。
+    const doBulk=async()=>{
+      const res=await fetch(cfBase()+'/ledger/defects?site='+encodeURIComponent(site),{
         method:'PATCH',
         headers:{'Content-Type':'application/json','Authorization':'Bearer '+cfToken(),'X-Site-Pass':cfPass()},
         body:JSON.stringify({edits})
       });
-      const j=await res.json();
+      const j=await res.json().catch(()=>({}));
       if(!res.ok||!j.ok) throw new Error(j.error||('HTTP '+res.status));
+      return j;
+    };
+    try{
+      const j=await withPasscodeRetry(doBulk);
       targets.forEach(r=>{ r.updatedBy=by; });
       recalcKpi(); render(); msg.textContent=j.updated+'件を一括確定しました';
     }catch(e){ msg.textContent='一括確定失敗: '+e.message; }
