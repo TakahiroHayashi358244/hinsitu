@@ -635,156 +635,29 @@ function selectedProcs(R, o){
 function buildPreview(){
   const host=document.getElementById('pvPages');
   host.innerHTML='';
-  const per='対象: '+R.site+'　期間: '+R.period;
-  const T=($('#title').value||'HFO1 品質・生産性報告');
-  const SUB=($('#subtitle').value||'');
-  const K=R.kpi;
-  const has=id=>sel.has(id) && ITEMS.find(i=>i.id===id).has(R);
-  const pages=[];
-
-  // 表紙
-  if(has('cover')){
-    const s=pvEl('div','slide cover');
-    const a=pvEl('div','ct',T); const b=pvEl('div','cp',per);
-    const c=pvEl('div','cs',SUB);
-    const d=pvEl('div','cd','作成日: '+new Date().toLocaleDateString('ja-JP'));
-    s.appendChild(a);s.appendChild(b);s.appendChild(c);s.appendChild(d);
-    pages.push(s);
-  }
-  // サマリー
-  if(has('kpi')){
-    const {slide,body}=pvSlide('サマリー',per);
-    const cards=pvEl('div','kcards');
-    [['Stow DPMO',fmtI(K.stowDpmo),PV_Q],
-     ['Pick 作業ミス DPMO',fmtI(K.workDpmo),'#C47F17'],
-     ['Pick 欠陥 DPMO',fmtI(K.shelfDpmo),PV_P]].forEach(k=>{
-      const c=pvEl('div','kcard');
-      c.appendChild(pvEl('div','l',k[0]));
-      const v=pvEl('div','v',k[1]); v.style.color=k[2];
-      c.appendChild(v); cards.appendChild(c);
-    });
-    body.appendChild(cards);
-    body.appendChild(pvTable(['項目','値'],[
-      ['Stow 処理 Units', fmtI(K.stowU)],
-      ['Pick 処理 Units', fmtI(K.ufU)],
-      ['Stow 欠陥 数', fmtI(K.sipQ)+'（'+K.sipCnt+' 件）'],
-      ['Pick 作業ミス Units', fmtI(K.pmU)],
-      ['Pick 欠陥 Units', fmtI(K.mfU)],
-      ['稼働人数（延べ）', fmtI(K.ppl)+' 名'],
-      ['稼働日数', R.opDays.length+' 日'],
-    ]));
-    const n=pvEl('div','note','DPMO の分母は実績データ (OpsUnits)。Stow 分母には Transfer In を含む。');
-    body.appendChild(n);
-    pages.push(slide);
-  }
-  // カバレッジ
-  if(has('gap')){
-    const {slide,body}=pvSlide('データカバレッジ',per);
-    const miss=R.gaps.filter(g=>g.missing.length);
-    const w=pvEl('div','warnbox');
-    w.textContent='⚠ 欠陥データが未取込の日があります。該当日は欠陥 0 件として計上しているため、DPMO が実際より低く出ている可能性があります。';
-    body.appendChild(w);
-    body.appendChild(pvTable(['データ','欠落日数','欠落日'],
-      miss.map(g=>[g.label, g.missing.length+' 日',
-        g.missing.length>6? g.missing.slice(0,6).join(', ')+' ほか' : g.missing.join(', ')])));
-    pages.push(slide);
-  }
-  // 品質推移
-  if(has('qtrend')){
-    const o=OPT.qtrend;
-    const {slide,body}=pvSlide('品質: 日別 DPMO 推移',per);
-    const D=qtrendData(R,o.granularity);
-    const all=[
-      {key:'stow',name:'Stow DPMO',color:PV_Q,vals:D.map(x=>x.stowDpmo)},
-      {key:'work',name:'Pick 作業ミス DPMO',color:'#C47F17',vals:D.map(x=>x.workDpmo)},
-      {key:'shelf',name:'Pick 欠陥 DPMO',color:PV_P,vals:D.map(x=>x.shelfDpmo)},
-    ].filter(m=>o.metrics[m.key]);
-    const ser=all.map(m=>({name:m.name,values:m.vals,color:m.color}));
-    if(o.target!=null&&!isNaN(o.target)) ser.push({name:'目標 '+o.target,values:D.map(()=>o.target),color:'#C0392B',dash:true});
-    body.appendChild(pvLine(D.map(x=>x.label),ser,910,390,'DPMO'));
-    pages.push(slide);
-  }
-  // 生産性推移
-  if(has('ptrend')){
-    const o=OPT.ptrend;
-    const ks=selectedProcs(R,o).slice(0,5);
-    const dates=[...new Set(ks.flatMap(k=>R.prodProcs[k].map(x=>x.date)))].sort();
-    const {slide,body}=pvSlide('生産性: 日別 UPH 推移',per);
-    body.appendChild(pvLine(dates.map(x=>x.slice(5)),
-      ks.map(k=>{
-        const m={}; R.prodProcs[k].forEach(x=>m[x.date]=x.uph);
-        return {name:k, values:dates.map(d=>m[d]!=null?Math.round(m[d]*10)/10:null)};
-      }),910,390,'UPH (u/h)',o.ymax));
-    // 収録されていない主要工程を明示（Stowが出ない等の取り違えを防ぐ）
-    const bare=new Set(ks.map(k=>k.replace(/ \((PPR|FR)\)$/,'')));
-    const lack=['Stow to Prime','Pick','Receive','Pack'].filter(x=>!bare.has(x));
-    if(lack.length){
-      const n=pvEl('div','note');
-      n.style.color='#9A3412';
-      n.textContent='※ 未収録の工程: '+lack.join(' / ')
-        +'　該当工程の processPathReport（日別）または functionRollupReport を取り込むとグラフに追加されます。';
-      body.appendChild(n);
-    }
-    pages.push(slide);
-  }
-  // 品質×生産性
-  if(has('cross')){
-    const {slide,body}=pvSlide('品質 × 生産性（工程別）',per);
-    const dm={'Stow to Prime':K.stowDpmo,'Pick':K.workDpmo,'Pick (FR)':K.workDpmo,'Stow to Prime (FR)':K.stowDpmo};
-    const rows=pickProcs(R.prodProcs, 8).map(k=>{
-      const a=R.prodProcs[k];
-      const v=a.reduce((s,x)=>s+x.vol,0), h=a.reduce((s,x)=>s+x.hrs,0);
-      return [k, fmt1(h?v/h:0), fmtI(v), fmt1(h), dm[k]!=null?fmtI(dm[k]):'—'];
-    });
-    body.appendChild(pvTable(['工程（ソース）','UPH','処理 Vol','工数 (h)','DPMO'],rows));
-    body.appendChild(pvEl('div','note','UPH は生産性データ、DPMO は品質データから算出。指標の性質が異なるため同一グラフには重ねず、表で並置しています。'));
-    pages.push(slide);
-  }
-  // 作業者別 品質
-  if(has('worker')){
-    const N=OPT.worker.topN||15;
-    const {slide,body}=pvSlide('作業者別 品質（Stow DPMO 降順・上位 '+N+' 名）',per);
-    body.appendChild(pvTable(['作業者','Stow 処理','欠陥件','欠陥数','Pick ミス','個人 DPMO'],
-      R.workers.slice(0,N).map((w,i)=>[(i+1)+'. '+w.name, fmtI(w.su), w.cnt, fmtI(w.q), w.pick, fmtI(w.dpmo)])));
-    pages.push(slide);
-  }
-  // 作業者別 UPH
-  if(has('uph')){
-    Object.keys(R.uphRank).slice(0,2).forEach(pr=>{
-      const {slide,body}=pvSlide('作業者別 UPH ランキング（'+pr+'）',per);
-      const list=R.uphRank[pr];
-      const med=list.length? list[Math.floor(list.length/2)].uph : 0;
-      const N=OPT.uph.topN||15;
-      body.appendChild(pvTable(['作業者','Units','工数 (h)','UPH','中央値比'],
-        list.slice(0,N).map((x,i)=>[(i+1)+'. '+x.name, fmtI(x.units), fmt1(x.hours), fmt1(x.uph),
-          med? (x.uph>=med*1.1?'◎':x.uph>=med*0.9?'○':'△') : '—'])));
-      body.appendChild(pvEl('div','note','中央値 '+fmt1(med)+' u/h と比較（◎: +10%以上 / ○: ±10% / △: -10%以下）'));
-      pages.push(slide);
-    });
-  }
-  // フロア別
-  if(has('floor')){
-    const {slide,body}=pvSlide('フロア別 Pick 欠陥',per);
-    body.appendChild(pvTable(['フロア','Pick 処理 Units','欠品 Units','欠品 DPMO','欠品率 (%)'],
-      R.floors.map(f=>[f.floor, fmtI(f.units), fmtI(f.miss), fmtI(f.dpmo), f.units? (Math.round(f.miss/f.units*10000)/100) : 0])));
-    pages.push(slide);
-  }
-  // 日別明細
-  if(has('daily')){
-    const rows=R.daily.slice(-12);
-    const {slide,body}=pvSlide('日別 明細',per+'（直近 '+rows.length+' 日）');
-    body.appendChild(pvTable(['日付','Stow 処理','稼働','欠陥数','Pickミス','Stow DPMO','Pick DPMO'],
-      rows.map(d=>[d.date, fmtI(d.su), d.ppl, fmtI(d.sq), fmtI(d.pmu), fmtI(d.stowDpmo), fmtI(d.workDpmo)])));
-    pages.push(slide);
-  }
-
-  pages.forEach((s,i)=>{
-    if(!s.classList.contains('cover')){
-      const n=pvEl('div','pnum',String(i+1)); s.appendChild(n);
-    }
-    host.appendChild(s);
+  const K=R.kpi||{};
+  const db=(typeof defectBreakdown==='function')?defectBreakdown(R):[];
+  const rate=(n,d)=>d?(n/d*100).toFixed(2)+'%':'－.－%';
+  const slides=[
+    ['1','表紙','ICQA 品質会議 / Quality Meeting（会議日は自動）'],
+    ['2','アジェンダ','01〜05（固定様式）'],
+    ['3','01 前週アクション進捗確認','空欄テンプレ（会議で記入）'],
+    ['4','02 プロセスミスレート','自動: Stow '+rate(K.sipQ,K.stowU)+' / Pick '+rate((K.pmU+K.mfU),(K.ufU||K.pickU))+'（Receiveはデータ無し）'],
+    ['5','02 ミスレート要因分析','5W1H＋表（空欄）'],
+    ['6','03 IRDR 結果','IRDR空欄＋Defectサマリー自動（'+db.length+'種別）'],
+    ['7','03 Defect 要因分析 & 対策','上位'+Math.min(4,db.length)+'要因を自動集計、対策欄は空欄'],
+    ['8','04 カウントアキュラシー','空欄（ツール未収集のため会議で記入）'],
+    ['9','04 カウント未達要因 & 対策','空欄'],
+    ['10','05 アクションまとめ','空欄＋次回会議（濃紺スライド）'],
+  ];
+  slides.forEach(sl=>{
+    const d=pvEl('div','slide');
+    d.style.cssText='background:#fff;border:1px solid #e3e8ef;border-left:5px solid #1F4E79;border-radius:8px;padding:12px 16px;margin:0 0 10px';
+    const t=pvEl('div',null,'スライド '+sl[0]+'：'+sl[1]); t.style.cssText='font-weight:700;color:#1F4E79;font-size:15px';
+    const s=pvEl('div',null,sl[2]); s.style.cssText='color:#6B7A90;font-size:13px;margin-top:4px';
+    d.appendChild(t); d.appendChild(s); host.appendChild(d);
   });
-  document.getElementById('pvCount').textContent=pages.length+' スライド';
+  document.getElementById('pvCount').textContent='10 スライド（ICQA品質会議フォーマット）';
   document.getElementById('pvWrap').style.display='block';
   document.body.style.overflow='hidden';
 }
@@ -806,225 +679,227 @@ function addTitle(slide,t,sub){
   if(sub) slide.addText(sub,{x:0.45,y:0.82,w:9.1,h:0.3,fontSize:12,color:C_MUT,fontFace:FONT});
 }
 
+/* ---- PowerPoint生成（ICQA品質会議フォーマット 10枚・完全再現＋自動入力） ---- */
 async function generate(){
   log('生成中…');
   const pptx=new PptxGenJS();
   pptx.layout='LAYOUT_16x9';
   pptx.defineSlideMaster({title:'M',background:{color:'FFFFFF'}});
-  const T=$('#title').value||'HFO1 品質・生産性報告';
-  const SUB=$('#subtitle').value||'';
-  const P='対象: '+R.site+'　期間: '+R.period;
 
-  // 表紙
-  if(sel.has('cover')){
-    const s=pptx.addSlide();
-    s.addShape(pptx.ShapeType.rect,{x:0,y:0,w:10,h:1.5,fill:{color:HDR}});
-    s.addText(T,{x:0.6,y:0.35,w:8.8,h:0.8,fontSize:30,bold:true,color:'FFFFFF',fontFace:FONT});
-    s.addText(P,{x:0.6,y:2.1,w:8.8,h:0.4,fontSize:16,color:C_INK,fontFace:FONT});
-    s.addText(SUB,{x:0.6,y:2.7,w:8.8,h:0.4,fontSize:13,color:C_MUT,fontFace:FONT});
-    s.addText('作成日: '+new Date().toLocaleDateString('ja-JP'),
-      {x:0.6,y:4.8,w:8.8,h:0.3,fontSize:11,color:C_MUT,fontFace:FONT});
+  /* ICQA配色 */
+  const NAVY='1F4E79', ORANGE='ED7D31', BLUE='2E75B6', LBLUE='DCE6F2',
+        CARD='F1F3F5', BAND='F5F8FB', MUT='6B7A90', MUT2='9AA6B4',
+        WHITE='FFFFFF', INK='1F2D3D', LINE='D9DEE7';
+  const TOTAL=10, F=FONT;
+  const RT=pptx.ShapeType.rect, RR=pptx.ShapeType.roundRect, OV=pptx.ShapeType.ellipse;
+  const P2=n=>String(n).padStart(2,'0');
+  const today=new Date(); const dstr=today.getFullYear()+' / '+P2(today.getMonth()+1)+' / '+P2(today.getDate());
+
+  const topbar=s=>s.addShape(RT,{x:0,y:0,w:10,h:0.09,fill:{color:NAVY}});
+  const footer=(s,n,dark)=>s.addText('ICQA Quality Meeting  |  '+n+' / '+TOTAL,
+    {x:6.2,y:5.28,w:3.6,h:0.24,align:'right',fontSize:9,color:dark?'AEB9C7':MUT2,fontFace:F});
+  const section=(s,num,jp,en,white)=>s.addText([
+      {text:num+' ・ ',options:{bold:true,color:white?WHITE:NAVY}},
+      {text:jp+'  ',options:{bold:true,color:white?WHITE:NAVY}},
+      {text:'/ '+en,options:{bold:false,color:white?'D6DEE8':NAVY}}
+    ],{x:0.4,y:0.30,w:9.2,h:0.5,fontSize:19,fontFace:F,valign:'middle'});
+  // 表ヘッダー2行（JP/EN）セル
+  const H2=(jp,en)=>({text:[{text:jp,options:{bold:true,breakLine:true}},{text:en,options:{bold:false,fontSize:9}}],
+      options:{color:WHITE,fill:NAVY,align:'center',valign:'middle',fontSize:11}});
+  const blankBody=(nrows,ncols)=>{const rows=[];for(let i=0;i<nrows;i++){const r=[];for(let c=0;c<ncols;c++)r.push({text:' ',options:{fill:(i%2?BAND:WHITE),align:'center',valign:'middle'}});rows.push(r);}return rows;};
+  const pct=(n,d)=>d?(n/d*100):null;
+  const pctS=v=>v==null?'－.－%':(v.toFixed(2)+'%');
+
+  /* ===== Slide 1: 表紙 ===== */
+  {const s=pptx.addSlide(); s.background={color:NAVY};
+   s.addShape(RT,{x:0,y:0,w:0.16,h:5.63,fill:{color:ORANGE}});
+   s.addText('ICQA 品質会議',{x:0.9,y:1.45,w:8.5,h:0.9,fontSize:38,bold:true,color:WHITE,fontFace:F});
+   s.addText('Quality Meeting',{x:0.94,y:2.5,w:8,h:0.5,fontSize:22,color:'AEB9C7',fontFace:F});
+   s.addText('会議日 : '+dstr,{x:0.94,y:3.62,w:6,h:0.3,fontSize:12,color:'C7D0DB',fontFace:F});
+   s.addText('参加者 : ______________',{x:0.94,y:3.98,w:6,h:0.3,fontSize:12,color:'C7D0DB',fontFace:F});
+   s.addText('ファシリテーター : ______________',{x:0.94,y:4.34,w:6.5,h:0.3,fontSize:12,color:'C7D0DB',fontFace:F});
+   s.addShape(RR,{x:7.7,y:4.55,w:1.55,h:0.55,rectRadius:0.08,fill:{color:ORANGE}});
+   s.addText('30 min',{x:7.7,y:4.55,w:1.55,h:0.55,align:'center',valign:'middle',bold:true,color:WHITE,fontSize:13,fontFace:F});
   }
 
-  // KPI
-  if(sel.has('kpi')){
-    const s=pptx.addSlide(); addTitle(s,'サマリー',P);
-    const K=[
-      ['Stow DPMO', fmtI(R.kpi.stowDpmo), C_Q],
-      ['Pick作業ミス DPMO', fmtI(R.kpi.workDpmo), C_Q],
-      ['Pick欠陥 DPMO', fmtI(R.kpi.shelfDpmo), C_Q],
-    ];
-    K.forEach((k,i)=>{
-      const x=0.45+i*3.05;
-      s.addShape(pptx.ShapeType.roundRect,{x,y:1.35,w:2.85,h:1.35,fill:{color:'F7F5FB'},line:{color:'E3E8EF'}});
-      s.addText(k[0],{x:x+0.15,y:1.45,w:2.55,h:0.3,fontSize:11,color:C_MUT,fontFace:FONT});
-      s.addText(k[1],{x:x+0.15,y:1.75,w:2.55,h:0.75,fontSize:30,bold:true,color:k[2],fontFace:FONT});
-    });
-    const rows=[
-      ['Stow処理 Units', fmtI(R.kpi.stowU)],
-      ['Pick処理 Units', fmtI(R.kpi.ufU||R.kpi.pickU)],
-      ['Stow欠陥 数', fmtI(R.kpi.sipQ)+'（'+R.kpi.sipCnt+'件）'],
-      ['Pick作業ミス Units', fmtI(R.kpi.pmU)],
-      ['Pick欠陥 Units', fmtI(R.kpi.mfU)],
-      ['稼働人数（延べ）', fmtI(R.kpi.ppl)+' 名'],
-      ['稼働日数', R.opDays.length+' 日'],
-    ];
-    s.addTable(tableRows(['項目','値'],rows),
-      {x:0.45,y:2.95,w:9.1,colW:[5.5,3.6],border:{pt:0.5,color:'D9DEE7'},fontFace:FONT});
-    s.addText('DPMOの分母は実績データ(OpsUnits)。Stow分母には Transfer In を含む。',
-      {x:0.45,y:5.05,w:9.1,h:0.25,fontSize:9,color:C_MUT,fontFace:FONT});
+  /* ===== Slide 2: アジェンダ ===== */
+  {const s=pptx.addSlide(); topbar(s);
+   s.addText([{text:'アジェンダ  ',options:{bold:true,color:NAVY}},{text:'/ Agenda (30min)',options:{bold:true,color:NAVY}}],
+     {x:0.4,y:0.32,w:9,h:0.5,fontSize:23,fontFace:F});
+   const ag=[['01','前週アクション進捗確認','Previous Action Review','5 min'],
+             ['02','プロセスミスレート','Process Miss Rate','9 min'],
+             ['03','IRDR レビュー','IRDR Results & Defect Analysis','8 min'],
+             ['04','カウントアキュラシー','Count Accuracy','5 min'],
+             ['05','アクションまとめ','Action Summary','3 min']];
+   ag.forEach((a,i)=>{const y=1.2+i*0.7;
+     s.addShape(OV,{x:0.55,y:y,w:0.52,h:0.52,fill:{color:BLUE}});
+     s.addText(a[0],{x:0.55,y:y,w:0.52,h:0.52,align:'center',valign:'middle',bold:true,color:WHITE,fontSize:15,fontFace:F});
+     s.addText(a[1],{x:1.3,y:y-0.02,w:5.4,h:0.32,bold:true,color:INK,fontSize:15,fontFace:F});
+     s.addText(a[2],{x:1.3,y:y+0.3,w:5.4,h:0.26,color:MUT,fontSize:10,fontFace:F});
+     s.addShape(RT,{x:7.45,y:y+0.06,w:1.35,h:0.42,fill:{color:LBLUE}});
+     s.addText(a[3],{x:7.45,y:y+0.06,w:1.35,h:0.42,align:'center',valign:'middle',bold:true,color:NAVY,fontSize:11,fontFace:F});
+   });
+   footer(s,2);
   }
 
-  // 欠落警告
-  if(sel.has('gap')){
-    const s=pptx.addSlide(); addTitle(s,'データカバレッジ',P);
-    s.addShape(pptx.ShapeType.roundRect,{x:0.45,y:1.35,w:9.1,h:0.85,fill:{color:'FFF7ED'},line:{color:'FDBA74'}});
-    s.addText('⚠ 欠陥データが未取込の日があります。該当日は欠陥0件として計上しているため、DPMOが実際より低く出ている可能性があります。',
-      {x:0.65,y:1.5,w:8.7,h:0.55,fontSize:12,color:'9A3412',fontFace:FONT});
-    const rows=R.gaps.map(g=>[g.label, g.missing.length+' 日',
-      g.missing.length? (g.missing.slice(0,8).join(', ')+(g.missing.length>8?' …':'')) : '欠落なし']);
-    s.addTable(tableRows(['データ','欠落日数','欠落日'],rows),
-      {x:0.45,y:2.45,w:9.1,colW:[2.5,1.3,5.3],border:{pt:0.5,color:'D9DEE7'},fontFace:FONT});
+  /* ===== Slide 3: 01 前週アクション進捗確認（空欄テンプレ） ===== */
+  {const s=pptx.addSlide(); topbar(s); section(s,'01','前週アクション進捗確認','Previous Action Review');
+   const head=[{text:'#',options:{color:WHITE,fill:NAVY,align:'center',valign:'middle',bold:true,fontSize:11}},
+     H2('アクション','Action'),H2('担当','Owner'),H2('期限','Due'),H2('ステータス','Status'),H2('備考','Notes')];
+   const body=[];for(let i=1;i<=5;i++){const fill=i%2?WHITE:BAND;
+     body.push([{text:String(i),options:{fill,align:'center',valign:'middle',color:INK}},
+       ...Array(5).fill(0).map(()=>({text:' ',options:{fill,valign:'middle'}}))]);}
+   s.addTable([head,...body],{x:0.4,y:1.0,w:9.2,colW:[0.5,3.4,1.2,1.2,1.6,1.3],rowH:0.55,
+     border:{pt:1,color:LINE},fontFace:F,fontSize:11,valign:'middle'});
+   s.addText([{text:'● ',options:{color:'2F8F4E'}},{text:'完了  ',options:{color:MUT}},
+     {text:'● ',options:{color:'C47F17'}},{text:'進行中  ',options:{color:MUT}},
+     {text:'● ',options:{color:'C0392B'}},{text:'遅延  ',options:{color:MUT}},
+     {text:'● ',options:{color:'9AA6B4'}},{text:'未着手',options:{color:MUT}}],
+     {x:0.4,y:4.5,w:6,h:0.3,fontSize:10,fontFace:F});
+   footer(s,3);
   }
 
-  // 品質: 日別DPMO推移
-  if(sel.has('qtrend')){
-    const o=OPT.qtrend;
-    const s=pptx.addSlide(); addTitle(s,'品質：日別DPMO推移',P);
-    const D=qtrendData(R,o.granularity);   // 日別 or 週別に集計
-    const lab=D.map(d=>d.label);
-    const all=[
-      {key:'stow', name:'Stow DPMO',        col:C_Q,      vals:D.map(d=>d.stowDpmo)},
-      {key:'work', name:'Pick作業ミス DPMO', col:'C47F17', vals:D.map(d=>d.workDpmo)},
-      {key:'shelf',name:'Pick欠陥 DPMO',     col:'2F855A', vals:D.map(d=>d.shelfDpmo)},
-    ].filter(m=>o.metrics[m.key]);
-    const series=all.map(m=>({name:m.name, labels:lab, values:m.vals}));
-    const cols=all.map(m=>m.col);
-    // 目標線（全期間で一定値の系列を足す）
-    if(o.target!=null && !isNaN(o.target)){
-      series.push({name:'目標 '+o.target, labels:lab, values:lab.map(()=>o.target)});
-      cols.push('C0392B');
-    }
-    const ctype=o.chart==='bar'?pptx.ChartType.bar:pptx.ChartType.line;
-    s.addChart(ctype,series,
-      {x:0.45,y:1.3,w:9.1,h:4.0,showLegend:true,legendPos:'b',
-       chartColors:cols,lineSize:2,barGrouping:'clustered',
-       catAxisLabelFontSize:9,valAxisLabelFontSize:9,valAxisTitle:'DPMO',showValAxisTitle:true,
-       catAxisLabelFontFace:FONT,valAxisLabelFontFace:FONT,valAxisTitleFontFace:FONT,legendFontFace:FONT,titleFontFace:FONT,
-       catAxisLabelRotate:45});
+  /* ===== Slide 4: 02 プロセスミスレート（自動入力: Stow/Pick率） ===== */
+  {const s=pptx.addSlide(); topbar(s); section(s,'02','プロセスミスレート','Process Miss Rate');
+   const K=R.kpi;
+   const cards=[['Receive','レシーブ',null],
+     ['Stow','ストウ',pct(K.sipQ,K.stowU)],
+     ['Pick','ピック',pct((K.pmU+K.mfU),(K.ufU||K.pickU))]];
+   cards.forEach((c,i)=>{const x=0.4+i*3.15,w=2.95,y=1.05,h=2.75;
+     s.addShape(RR,{x,y,w,h,rectRadius:0.06,fill:{color:CARD},line:{color:'E6E9ED'}});
+     s.addText(c[0],{x,y:y+0.15,w,h:0.35,align:'center',bold:true,color:NAVY,fontSize:17,fontFace:F});
+     s.addText(c[1],{x,y:y+0.52,w,h:0.28,align:'center',color:MUT,fontSize:11,fontFace:F});
+     s.addText(pctS(c[2]),{x,y:y+0.95,w,h:0.6,align:'center',bold:true,color:INK,fontSize:30,fontFace:F});
+     s.addText('Target: __.__%',{x,y:y+1.62,w,h:0.28,align:'center',color:MUT,fontSize:11,fontFace:F});
+     s.addShape(RR,{x:x+0.5,y:y+1.95,w:w-1.0,h:0.36,rectRadius:0.05,fill:{color:'8A97AD'}});
+     s.addText('Gap: +/- _.__%',{x:x+0.5,y:y+1.95,w:w-1.0,h:0.36,align:'center',valign:'middle',bold:true,color:WHITE,fontSize:10,fontFace:F});
+     s.addText('達成  /  未達',{x,y:y+2.4,w,h:0.28,align:'center',color:MUT,fontSize:11,fontFace:F});
+   });
+   s.addText('※ ターゲット未達プロセスのみ次スライドで要因分析。Stow/Pickの実測ミス率は自動算出、Target・Gap・判定は会議で記入。',
+     {x:0.4,y:4.05,w:9.2,h:0.3,fontSize:10.5,italic:true,color:MUT,fontFace:F});
+   footer(s,4);
   }
 
-  // 生産性: 日別UPH推移
-  if(sel.has('ptrend')){
-    const s=pptx.addSlide(); addTitle(s,'生産性：日別UPH推移',P);
-    const o=OPT.ptrend;
-    const keys=selectedProcs(R, o);
-    const dates=[...new Set(keys.flatMap(k=>R.prodProcs[k].map(x=>x.date)))].sort();
-    const lab=dates.map(d=>d.slice(5));
-    const COL=['0F9D8F','1F5FA8','C26A1E','7B4FB0','C0392B','2F8F4E','D9A406'];
-    const series=keys.map((k,i)=>{
-      const m={}; R.prodProcs[k].forEach(x=>m[x.date]=x.uph);
-      return {name:k, labels:lab, values:dates.map(d=>m[d]!=null?Math.round(m[d]*10)/10:null)};
-    });
-    const ctype=o.chart==='bar'?pptx.ChartType.bar:pptx.ChartType.line;
-    const yopt=(o.ymax!=null&&!isNaN(o.ymax))?{valAxisMaxVal:o.ymax,valAxisMinVal:0}:{};
-    s.addChart(ctype,series,
-      {x:0.45,y:1.3,w:9.1,h:4.0,showLegend:true,legendPos:'b',
-       chartColors:COL,lineSize:2,barGrouping:'clustered',...yopt,
-       catAxisLabelFontSize:9,valAxisLabelFontSize:9,valAxisTitle:'UPH (u/h)',showValAxisTitle:true,
-       catAxisLabelFontFace:FONT,valAxisLabelFontFace:FONT,valAxisTitleFontFace:FONT,legendFontFace:FONT,titleFontFace:FONT,
-       catAxisLabelRotate:45});
-    // 未収録工程を明示（Stowが出ない等の取り違え防止）
-    const bare=new Set(keys.map(x=>x.replace(/ \((PPR|FR)\)$/,'')));
-    const lack=['Stow to Prime','Pick','Receive','Pack'].filter(x=>!bare.has(x));
-    if(lack.length){
-      s.addText('※ 未収録の工程: '+lack.join(' / ')+'　該当工程の processPathReport（日別）または functionRollupReport を取り込むとグラフに追加されます。',
-        {x:0.45,y:5.35,w:9.1,h:0.35,fontSize:10,color:'9A3412',fontFace:FONT});
-    }
+  /* ===== Slide 5: 02 ミスレート要因分析 5W1H＋表（空欄） ===== */
+  {const s=pptx.addSlide(); topbar(s); section(s,'02','ミスレート要因分析','Miss Rate Root Cause');
+   const w5=[['Why','なぜ発生？',ORANGE],['What','何をする',NAVY],['Who','誰が',NAVY],['When','いつまで',NAVY],['How','どのように',NAVY]];
+   w5.forEach((b,i)=>{const x=0.4+i*1.9,w=1.55,y=0.95,h=0.85;
+     s.addShape(RR,{x,y,w,h,rectRadius:0.05,fill:{color:b[2]}});
+     s.addText([{text:b[0],options:{bold:true,breakLine:true,fontSize:12}},{text:b[1],options:{fontSize:9.5}}],
+       {x,y,w,h,align:'center',valign:'middle',color:WHITE,fontFace:F});
+     if(i<4) s.addText('▶',{x:x+w,y,w:0.35,h,align:'center',valign:'middle',color:ORANGE,fontSize:14,fontFace:F});
+   });
+   const head=[H2('プロセス','Process'),H2('要因','Why'),H2('対策','What'),H2('担当','Who'),H2('期限','When'),H2('方法','How')];
+   s.addTable([head,...blankBody(3,6)],{x:0.4,y:2.15,w:9.2,colW:[1.3,2.2,2.0,1.0,1.1,1.6],rowH:0.62,
+     border:{pt:1,color:LINE},fontFace:F,fontSize:11,valign:'middle'});
+   footer(s,5);
   }
 
-  // 品質×生産性 並置
-  if(sel.has('cross')){
-    const s=pptx.addSlide(); addTitle(s,'品質 × 生産性（工程別）',P);
-    const Q={'Stow to Prime':R.kpi.stowDpmo,'Pick':R.kpi.workDpmo};
-    const rows=pickProcs(R.prodProcs, 8).map(k=>{
-      const a=R.prodProcs[k];
-      const v=a.reduce((s,x)=>s+x.vol,0), h=a.reduce((s,x)=>s+x.hrs,0);
-      const base=k.replace(/ \((PPR|FR)\)$/,'');
-      const q=Q[base];
-      return [k, fmt1(h?v/h:0), fmtI(v), fmt1(h), q!=null?fmtI(q):'—'];
-    });
-    s.addTable(tableRows(['工程 (ソース)','UPH','処理Vol','工数(h)','DPMO'],rows),
-      {x:0.45,y:1.35,w:9.1,colW:[2.9,1.4,1.8,1.5,1.5],border:{pt:0.5,color:'D9DEE7'},fontFace:FONT});
-    s.addText('UPHは生産性データ、DPMOは品質データから算出。指標の性質が異なるため同一グラフには重ねず、表で並置しています。',
-      {x:0.45,y:5.05,w:9.1,h:0.3,fontSize:9,color:C_MUT,fontFace:FONT});
+  /* ===== Slide 6: 03 IRDR結果（IRDR空欄＋Defectサマリー自動） ===== */
+  {const s=pptx.addSlide(); topbar(s); section(s,'03','IRDR 結果','IRDR Results');
+   s.addShape(RR,{x:0.5,y:1.05,w:3.8,h:2.75,rectRadius:0.06,fill:{color:CARD},line:{color:'E6E9ED'}});
+   s.addText('IRDR',{x:0.5,y:1.25,w:3.8,h:0.4,align:'center',bold:true,color:NAVY,fontSize:20,fontFace:F});
+   s.addText('Inventory Record Defect Rate',{x:0.5,y:1.7,w:3.8,h:0.28,align:'center',color:MUT,fontSize:10,fontFace:F});
+   s.addText('－.－%',{x:0.5,y:2.15,w:3.8,h:0.6,align:'center',bold:true,color:INK,fontSize:32,fontFace:F});
+   s.addText('Target: __.__%',{x:0.5,y:2.85,w:3.8,h:0.28,align:'center',color:MUT,fontSize:11,fontFace:F});
+   s.addShape(RR,{x:1.3,y:3.2,w:2.2,h:0.4,rectRadius:0.05,fill:{color:'8A97AD'}});
+   s.addText('達成 / 未達',{x:1.3,y:3.2,w:2.2,h:0.4,align:'center',valign:'middle',bold:true,color:WHITE,fontSize:11,fontFace:F});
+   // Defectサマリー（自動: 種別×件数×割合）
+   s.addText('Defect サマリー',{x:4.9,y:1.05,w:4,h:0.35,bold:true,color:INK,fontSize:14,fontFace:F});
+   const db=defectBreakdown(R).slice(0,5);
+   const head=[{text:'要因 / Type',options:{color:WHITE,fill:BLUE,align:'center',valign:'middle',bold:true,fontSize:11}},
+     {text:'件数',options:{color:WHITE,fill:BLUE,align:'center',bold:true,fontSize:11}},
+     {text:'割合',options:{color:WHITE,fill:BLUE,align:'center',bold:true,fontSize:11}}];
+   const body=(db.length?db:[{type:' ',cnt:'',pct:''}]).map((d,i)=>{const fill=i%2?WHITE:BAND;
+     return [{text:String(d.type),options:{fill,align:'left',valign:'middle',color:INK}},
+       {text:d.cnt===''?' ':fmtI(d.cnt),options:{fill,align:'right',valign:'middle',color:INK}},
+       {text:d.pct===''?' ':d.pct.toFixed(1)+'%',options:{fill,align:'right',valign:'middle',color:INK}}];});
+   s.addTable([head,...body],{x:4.9,y:1.5,w:4.7,colW:[2.5,1.1,1.1],rowH:0.5,border:{pt:1,color:LINE},fontFace:F,fontSize:11,valign:'middle'});
+   footer(s,6);
   }
 
-  // 作業者別 品質
-  if(sel.has('worker')){
-    const N=OPT.worker.topN||15;
-    const s=pptx.addSlide(); addTitle(s,'作業者別 品質（Stow DPMO 降順・上位'+N+'名）',P);
-    const rows=R.workers.slice(0,N).map((w,i)=>
-      [String(i+1)+'. '+w.name, fmtI(w.su), String(w.cnt), String(w.q), String(w.pick), fmtI(w.dpmo)]);
-    s.addTable(tableRows(['作業者','Stow処理','欠陥件','欠陥数','Pickミス','個人DPMO'],rows),
-      {x:0.45,y:1.35,w:9.1,colW:[3.0,1.5,1.1,1.1,1.2,1.2],
-       border:{pt:0.5,color:'D9DEE7'},fontFace:FONT,autoPage:false});
+  /* ===== Slide 7: 03 Defect要因分析＆対策（上位自動＋対策空欄） ===== */
+  {const s=pptx.addSlide(); topbar(s); section(s,'03','Defect 要因分析 & 対策','Defect Analysis & Actions');
+   const head=[{text:'#',options:{color:WHITE,fill:NAVY,align:'center',valign:'middle',bold:true,fontSize:11}},
+     H2('Defect 要因','Type'),H2('件数','Count'),H2('割合','%'),
+     {text:'Root Cause',options:{color:WHITE,fill:NAVY,align:'center',valign:'middle',bold:true,fontSize:11}},
+     H2('対策','Action'),H2('担当','Who'),H2('期限','When')];
+   const db=defectBreakdown(R).slice(0,4);
+   const body=[];for(let i=0;i<4;i++){const fill=i%2?WHITE:BAND;const d=db[i];
+     body.push([{text:String(i+1),options:{fill,align:'center',valign:'middle',color:INK}},
+       {text:d?String(d.type):' ',options:{fill,align:'left',valign:'middle',color:INK}},
+       {text:d?fmtI(d.cnt):' ',options:{fill,align:'right',valign:'middle',color:INK}},
+       {text:d?d.pct.toFixed(1)+'%':' ',options:{fill,align:'right',valign:'middle',color:INK}},
+       {text:' ',options:{fill,valign:'middle'}},{text:' ',options:{fill,valign:'middle'}},
+       {text:' ',options:{fill,valign:'middle'}},{text:' ',options:{fill,valign:'middle'}}]);}
+   s.addTable([head,...body],{x:0.4,y:1.0,w:9.2,colW:[0.4,1.5,0.7,0.7,2.7,1.6,0.8,0.8],rowH:0.62,
+     border:{pt:1,color:LINE},fontFace:F,fontSize:10.5,valign:'middle'});
+   s.addText('※ Pareto 上位要因のみ記載。件数・割合は自動集計、各要因に Root Cause / What / Who / When を明確化。',
+     {x:0.4,y:4.4,w:9.2,h:0.3,fontSize:10,italic:true,color:MUT,fontFace:F});
+   footer(s,7);
   }
 
-  // 作業者別 UPH
-  if(sel.has('uph')){
-    Object.keys(R.uphRank).forEach(proc=>{
-      const list=R.uphRank[proc];
-      if(!list.length) return;
-      const med=[...list].map(x=>x.uph).sort((a,b)=>a-b)[Math.floor(list.length/2)];
-      const N=OPT.uph.topN||15;
-      const s=pptx.addSlide();
-      addTitle(s,'作業者別 UPH ランキング：'+proc,P+'　／　中央値 '+fmt1(med)+' u/h（上位'+N+'）');
-      const rows=list.slice(0,N).map((x,i)=>
-        [String(i+1)+'. '+x.name, fmt1(x.uph), fmtI(x.units), fmt1(x.hours),
-         x.uph>=med*1.1?'◎':x.uph>=med*0.9?'○':'△']);
-      s.addTable(tableRows(['作業者','UPH','処理Units','工数(h)','評価'],rows),
-        {x:0.45,y:1.35,w:9.1,colW:[3.4,1.5,1.7,1.5,1.0],
-         border:{pt:0.5,color:'D9DEE7'},fontFace:FONT});
-    });
+  /* ===== Slide 8: 04 カウントアキュラシー（空欄・ツール未収集） ===== */
+  {const s=pptx.addSlide(); topbar(s); section(s,'04','カウントアキュラシー','Count Accuracy');
+   const cards=[['SBC','Simple Bin Count'],['CC','Cycle Count'],['SRC','Special Research Count']];
+   cards.forEach((c,i)=>{const x=0.4+i*3.15,w=2.95,y=1.05,h=2.75;
+     s.addShape(RR,{x,y,w,h,rectRadius:0.06,fill:{color:CARD},line:{color:'E6E9ED'}});
+     s.addText(c[0],{x,y:y+0.15,w,h:0.35,align:'center',bold:true,color:NAVY,fontSize:17,fontFace:F});
+     s.addText(c[1],{x,y:y+0.52,w,h:0.28,align:'center',color:MUT,fontSize:10,fontFace:F});
+     s.addText('__.__%',{x,y:y+0.95,w,h:0.6,align:'center',bold:true,color:INK,fontSize:30,fontFace:F});
+     s.addText('Target: __.__%',{x,y:y+1.62,w,h:0.28,align:'center',color:MUT,fontSize:11,fontFace:F});
+     s.addText('達成  /  未達',{x,y:y+2.05,w,h:0.3,align:'center',color:MUT,fontSize:12,fontFace:F});
+   });
+   s.addText('※ 未達タイプのみ次スライドで要因分析。カウント精度はツール未収集のため会議で記入。',
+     {x:0.4,y:4.05,w:9.2,h:0.3,fontSize:10.5,italic:true,color:MUT,fontFace:F});
+   footer(s,8);
   }
 
-  // フロア別
-  if(sel.has('floor')){
-    const s=pptx.addSlide(); addTitle(s,'フロア別 Pick欠陥',P);
-    const rows=R.floors.map(f=>[f.floor,fmtI(f.units),fmtI(f.miss),fmtI(f.dpmo),
-      (f.units?Math.round(f.miss/f.units*10000)/100:0)+'%']);
-    s.addTable(tableRows(['フロア','Pick処理Units','欠品Units','DPMO','欠品率'],rows),
-      {x:0.45,y:1.35,w:9.1,colW:[2.5,2.0,1.7,1.6,1.3],border:{pt:0.5,color:'D9DEE7'},fontFace:FONT});
+  /* ===== Slide 9: 04 カウント未達要因＆対策（空欄） ===== */
+  {const s=pptx.addSlide(); topbar(s); section(s,'04','カウント未達要因 & 対策','Count Gap Analysis');
+   const head=[H2('タイプ','Type'),H2('要因','Root Cause'),H2('対策','Countermeasure'),H2('担当','Owner'),H2('期限','Due'),H2('方法','How')];
+   const types=['SBC','CC','SRC'];
+   const body=types.map((t,i)=>{const fill=i%2?WHITE:BAND;
+     return [{text:t,options:{fill,align:'center',valign:'middle',bold:true,color:INK}},
+       ...Array(5).fill(0).map(()=>({text:' ',options:{fill,valign:'middle'}}))];});
+   s.addTable([head,...body],{x:0.4,y:1.0,w:9.2,colW:[1.0,2.0,2.4,1.0,1.1,1.7],rowH:0.7,
+     border:{pt:1,color:LINE},fontFace:F,fontSize:11,valign:'middle'});
+   s.addText('※ 達成タイプは記入不要。未達のタイプのみ記入してください。',
+     {x:0.4,y:4.4,w:9.2,h:0.3,fontSize:10,italic:true,color:MUT,fontFace:F});
+   footer(s,9);
   }
 
-  // 日別表
-  if(sel.has('daily')){
-    const s=pptx.addSlide(); addTitle(s,'日別推移',P);
-    const rows=R.daily.map(d=>[d.date,fmtI(d.su),String(d.ppl),String(d.sq),
-      fmtI(d.stowDpmo),fmtI(d.workDpmo),fmtI(d.shelfDpmo)]);
-    s.addTable(tableRows(['日付','Stow処理','人数','欠陥数','Stow DPMO','Pickミス DPMO','Pick欠陥 DPMO'],rows),
-      {x:0.45,y:1.35,w:9.1,colW:[1.5,1.4,0.9,1.1,1.5,1.5,1.2],
-       border:{pt:0.5,color:'D9DEE7'},fontFace:FONT,autoPage:true,autoPageRepeatHeader:true});
+  /* ===== Slide 10: 05 アクションまとめ（濃紺・空欄）＋次回会議 ===== */
+  {const s=pptx.addSlide(); s.background={color:NAVY};
+   section(s,'05','本日のアクションまとめ','Action Summary',true);
+   const head=[{text:'#',options:{color:WHITE,fill:BLUE,align:'center',valign:'middle',bold:true,fontSize:11}},
+     {text:[{text:'What',options:{bold:true,breakLine:true}},{text:'何をする',options:{fontSize:9}}],options:{color:WHITE,fill:BLUE,align:'center',valign:'middle',fontSize:11}},
+     {text:[{text:'Who',options:{bold:true,breakLine:true}},{text:'誰が',options:{fontSize:9}}],options:{color:WHITE,fill:BLUE,align:'center',valign:'middle',fontSize:11}},
+     {text:[{text:'When',options:{bold:true,breakLine:true}},{text:'いつまで',options:{fontSize:9}}],options:{color:WHITE,fill:BLUE,align:'center',valign:'middle',fontSize:11}},
+     {text:[{text:'How',options:{bold:true,breakLine:true}},{text:'どのように',options:{fontSize:9}}],options:{color:WHITE,fill:BLUE,align:'center',valign:'middle',fontSize:11}}];
+   const body=[];for(let i=1;i<=5;i++){body.push([
+     {text:String(i),options:{fill:NAVY,color:WHITE,align:'center',valign:'middle'}},
+     ...Array(4).fill(0).map(()=>({text:' ',options:{fill:'21568A',color:WHITE,valign:'middle'}}))]);}
+   s.addTable([head,...body],{x:0.4,y:1.0,w:9.2,colW:[0.5,3.7,1.5,1.5,2.0],rowH:0.48,
+     border:{pt:1,color:'4A709A'},fontFace:F,fontSize:11,valign:'middle'});
+   s.addShape(RR,{x:2.7,y:4.55,w:4.6,h:0.55,rectRadius:0.06,fill:{color:ORANGE}});
+   s.addText('次回会議  / Next Meeting:  YYYY / MM / DD',{x:2.7,y:4.55,w:4.6,h:0.55,align:'center',valign:'middle',bold:true,color:WHITE,fontSize:13,fontFace:F});
+   footer(s,10,true);
   }
 
-  if(sel.has('detail') && R.raw){
-    const fmtDate=v=>String(v||'').slice(0,10);
-    // Stow欠陥明細（SIPSDDR）
-    const sip=R.raw.sipsddr||[];
-    if(sip.length){
-      const s=pptx.addSlide(); addTitle(s,'ミス詳細：Stow欠陥（SIPSDDR）',P+'　'+sip.length+'件');
-      const rows=sip.map(r=>[fmtDate(r.created_date), r.user_logins||'', r.symptoms||'',
-        fmtI(num(r.quantity)), (r.item_name||'').slice(0,18), r.current_container||'']);
-      s.addTable(tableRows(['日付','アカウント','症状','数量','商品名','容器'],rows),
-        {x:0.35,y:1.3,w:9.3,colW:[1.1,1.3,1.7,0.8,2.9,1.5],fontSize:9,
-         border:{pt:0.5,color:'D9DEE7'},fontFace:FONT,autoPage:true,autoPageRepeatHeader:true});
-    }
-    // Pick作業ミス明細（PickMissData）
-    const pm=R.raw.pickmiss||[];
-    if(pm.length){
-      const s=pptx.addSlide(); addTitle(s,'ミス詳細：Pick作業ミス（PickMissData）',P+'　'+pm.length+'件');
-      const rows=pm.map(r=>[fmtDate(r.error_day), r.error_person||'', r.error_type||'',
-        fmtI(num(r.error_unit)), (r.item_name||'').slice(0,16), r.error_bin_id||'']);
-      s.addTable(tableRows(['日付','作業者','エラー種別','数量','商品名','ビン'],rows),
-        {x:0.35,y:1.3,w:9.3,colW:[1.1,1.3,1.6,0.8,2.7,1.8],fontSize:9,
-         border:{pt:0.5,color:'D9DEE7'},fontFace:FONT,autoPage:true,autoPageRepeatHeader:true});
-    }
-    // 棚欠品明細（PickMissingFloor）
-    const mf=R.raw.missingfloor||[];
-    if(mf.length){
-      const s=pptx.addSlide(); addTitle(s,'ミス詳細：棚欠品（PickMissingFloor）',P+'　'+mf.length+'件');
-      const rows=mf.map(r=>[fmtDate(r.snapshot_day), r.bin_module||'', r.bin||'',
-        fmtI(num(r.gross_units)), r.source_item_id||'']);
-      s.addTable(tableRows(['日付','フロア','ビン','欠品数','商品ID'],rows),
-        {x:0.6,y:1.3,w:8.8,colW:[1.4,1.6,2.0,1.2,2.6],fontSize:9,
-         border:{pt:0.5,color:'D9DEE7'},fontFace:FONT,autoPage:true,autoPageRepeatHeader:true});
-    }
-  }
-
-  const fn='HFO1_品質生産性報告_'+(R.from||R.opDays[0]||'')+'_'+(R.to||R.opDays[R.opDays.length-1]||'')+'.pptx';
+  const fn='ICQA_品質会議_'+(R.from||R.opDays[0]||'')+'_'+(R.to||R.opDays[R.opDays.length-1]||'')+'.pptx';
   await pptx.writeFile({fileName:fn});
   log('✓ 生成しました：'+fn);
+}
+
+/* 欠陥種別の内訳（自動入力用）: sipsddr症状 / pickmiss種別 / 棚欠品 を集計 */
+function defectBreakdown(R){
+  const raw=R.raw||{}; const cnt={};
+  (raw.sipsddr||[]).forEach(r=>{const t=(r.symptoms||'(不明)');cnt[t]=(cnt[t]||0)+1;});
+  (raw.pickmiss||[]).forEach(r=>{const t=(r.error_type||'(不明)');cnt[t]=(cnt[t]||0)+1;});
+  (raw.missingfloor||[]).forEach(()=>{cnt['欠品']=(cnt['欠品']||0)+1;});
+  const tot=Object.values(cnt).reduce((a,b)=>a+b,0)||1;
+  return Object.entries(cnt).map(([type,c])=>({type,cnt:c,pct:c/tot*100})).sort((a,b)=>b.cnt-a.cnt);
 }
 
 /* ---- 起動 ---- */
