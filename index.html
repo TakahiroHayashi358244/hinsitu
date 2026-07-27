@@ -241,7 +241,7 @@ tr.out td{color:var(--mut);font-style:italic}
   <div class="top">
     <div>
       <div class="title" id="mainTitle">品質×生産性 統合ダッシュボード</div>
-      <div class="sub">DPMO（品質）と UPH（生産性）を1つのツールで。CSV / ZIP をドラッグ&ドロップ、ヘッダーで自動判別。<b>v151</b>：品質タブを台帳ベースに移行（段階5a）＋描画バグ修正＋DPMO定義を欠陥管理タブに統一（Pick＝全Pick、欠品＝棚欠品process『欠品』）。台帳があれば computeQuality を介さず高速集計＋欠陥フラグを自動反映。全期間なら品質画面＝欠陥管理で一致。台帳が無い端末は従来計算にフォールバック。</div>
+      <div class="sub">DPMO（品質）と UPH（生産性）を1つのツールで。CSV / ZIP をドラッグ&ドロップ、ヘッダーで自動判別。<b>v152</b>：起動高速化（段階5c）。ローカルが最新なら生データ22.7万件の再取得を省略、取込後は自分の版を適用済み記録、サイト一覧の全件走査を廃止。＋品質タブ台帳ベース化（5a）／描画バグ修正／DPMO定義を欠陥管理に統一（Pick＝全Pick、欠品＝棚欠品）。全期間なら品質画面＝欠陥管理で一致。</div>
     </div>
     <div style="display:flex;flex-direction:row;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end">
       <div id="siteChip" style="font-size:13px;font-weight:700;padding:6px 14px;border-radius:999px;background:#1f3a5f;color:#fff;white-space:nowrap"></div>
@@ -1070,6 +1070,11 @@ async function refreshState(){
    品質: サイト一覧 & DPMOレポート算出
    ========================================================= */
 async function listSites(){
+  // [段階5c] IndexedDBには現在表示中の事業所データのみ入る前提。22.7万件の全件走査を避け、
+  //   現在サイトを即返す（台帳だけ持つ閲覧端末でも品質サイトを提示でき、起動/タブ構築が高速化）。
+  const cur=(typeof VIEW_SITE!=='undefined'&&VIEW_SITE)||cfSite();
+  if(cur) return [cur];
+  // フォールバック（サイト未確定時のみ・従来走査）
   const set=new Set();
   for(const ds of DATASETS){
     const recs=await getByDataset(ds.id);
@@ -1873,6 +1878,13 @@ async function cfAutoUpload(logTarget){
     const {snap}=await buildSnapshot();
     const r2=await cfPutRaw(site, wk, snap);
     if(!r2.skipped) say('☁ 明細送信 '+site+'/'+wk+'（'+((r2.bytes||0)/1024).toFixed(0)+'KB）','ok');
+    // [段階5c] 自分がアップロードした版を「適用済み」に記録 → 次回起動で自分の生データを再DLしない（高速起動）
+    if(!r2.skipped){
+      try{
+        const m=await fetch(cfBase()+'/raw/latest/meta?site='+encodeURIComponent(site)+'&t='+Date.now(),{cache:'no-store'}).then(x=>x.json());
+        if(m&&m.ok&&m.latest&&m.latest.uploadedAt) cfSetApplied(m.latest.uploadedAt);
+      }catch(e){}
+    }
   }catch(e){
     say('☁ クラウド送信スキップ：'+e.message,'wn');
     if(logTarget) throw e; // 手動アップロード時は呼び出し側へ通知
@@ -1947,6 +1959,13 @@ async function loadSiteData(site){
       await clearAllData();
       logLine('☁ '+site+' のクラウドデータはまだありません。空の状態です（取込・アップロードで作成されます）。','wn');
       return 'empty';
+    }
+    // [段階5c] 鮮度スキップ: ローカルが既に最新なら22.7万件の再DL/再書き込みを省略（起動高速化）。
+    //   ローカルにデータがあり、適用済み版がクラウド最新以上 → そのまま使う（内容は同一なので安全）。
+    const localCount=await countStore(QSTORE).catch(()=>0);
+    if(localCount>0 && cfAppliedAt() && meta.latest.uploadedAt && meta.latest.uploadedAt<=cfAppliedAt()){
+      logLine('☁ '+site+' はローカルが最新（'+fmtWhen(cfAppliedAt())+'）。生データの再取得を省略しました（高速起動）。','ok');
+      return 'fresh';
     }
     const res=await fetch(base+'/raw/latest?site='+encodeURIComponent(site)+'&t='+Date.now(),{cache:'no-store'});
     if(!res.ok){ return 'fail'; }
