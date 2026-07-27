@@ -241,7 +241,7 @@ tr.out td{color:var(--mut);font-style:italic}
   <div class="top">
     <div>
       <div class="title" id="mainTitle">品質×生産性 統合ダッシュボード</div>
-      <div class="sub">DPMO（品質）と UPH（生産性）を1つのツールで。CSV / ZIP をドラッグ&ドロップ、ヘッダーで自動判別。<b>v148</b>：品質の再計算にも進捗表示を追加（上部バーに「集計中／台帳反映中／描画中」を表示）。取込・クラウド同期・起動読込と共通。</div>
+      <div class="sub">DPMO（品質）と UPH（生産性）を1つのツールで。CSV / ZIP をドラッグ&ドロップ、ヘッダーで自動判別。<b>v149</b>：品質タブを台帳ベースに移行（段階5a）。台帳があれば computeQuality を介さず高速集計＋欠陥フラグを自動反映（KPI/作業者/日別/グラフ/カバレッジ/FR突合）。台帳が無い端末は従来計算にフォールバック。</div>
     </div>
     <div style="display:flex;flex-direction:row;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end">
       <div id="siteChip" style="font-size:13px;font-weight:700;padding:6px 14px;border-radius:999px;background:#1f3a5f;color:#fff;white-space:nowrap"></div>
@@ -1570,7 +1570,10 @@ async function buildWorkerVolumeDaily(site){
   act.forEach(r=>{
     const d=r._date, acct=r.person; if(!d||!acct) return;
     const k=d+'|'+acct;
-    const o=byKey[k]||(byKey[k]={d,site,acct,name:(a2n[acct]||''),receiveU:0,stowU:0,pickU:0});
+    const o=byKey[k]||(byKey[k]={d,site,acct,name:(a2n[acct]||''),emplid:'',disp:'',receiveU:0,stowU:0,pickU:0});
+    // [段階5] FR紐付け用: emplid と表示名を台帳に載せる（閲覧端末でも empl2acct を作れるように）
+    if(!o.emplid && r.emplid) o.emplid=String(r.emplid).trim();
+    if(!o.disp && r.employee_display_name) o.disp=String(r.employee_display_name).trim();
     o.receiveU+=num(r.receivetotalunit); o.stowU+=num(r.stowtotalunit); o.pickU+=num(r.picktotalunit);
   });
   return Object.values(byKey);
@@ -1711,6 +1714,133 @@ function computeFromLedgers(L, from, to){
 
   const rf=days[0]||from||'', rt=days[days.length-1]||to||'';
   return {kpi, daily, workers, process:procRows, defects:df, resolvedFrom:rf, resolvedTo:rt, days};
+}
+
+/* ═══════════════════════════════════════════════════════════
+   [段階5] クラウドの4台帳を取得（閲覧端末でも同一表示にするため台帳が単一の真実）
+   ═══════════════════════════════════════════════════════════ */
+async function fetchAllLedgers(site){
+  const base=cfBase(); if(!base||!site) return null;
+  const g=(kind)=>fetch(base+'/ledger?site='+encodeURIComponent(site)+'&kind='+kind+'&t='+Date.now(),{cache:'no-store'})
+    .then(r=>r.json()).then(j=>j&&j.ok?(j.rows||[]):[]).catch(()=>[]);
+  const gd=()=>fetch(base+'/ledger/defects?site='+encodeURIComponent(site)+'&t='+Date.now(),{cache:'no-store'})
+    .then(r=>r.json()).then(j=>j&&j.ok?(j.rows||[]):[]).catch(()=>[]);
+  const [volume,worker,process,defects]=await Promise.all([g('volume'),g('worker'),g('process'),gd()]);
+  return {volume,worker,process,defects};
+}
+
+/* ═══════════════════════════════════════════════════════════
+   [段階5] 4台帳 → 完全な QReport を組み立てる（computeQuality を介さない）
+   既存の各パネル(KPI/作業者/日別/グラフ/カバレッジ/トレードオフ/ドリルダウン)が
+   読むフィールドを台帳から再現する。フラグ変更が即反映され、集計済みなので高速。
+   ・分母 = volume/worker 台帳、分子 = defects 台帳（process/type は編集済みを反映）
+   ・FR紐付け(empl2acct) = worker 台帳の emplid
+   ・raw.* は defects 由来のスリム行（ドリルダウンは主要項目のみ表示＝5a範囲）
+   ・floorRows は unitsfloor 未搭載のため空（5bで対応）
+   ═══════════════════════════════════════════════════════════ */
+function buildQReportFromLedgers(L, from, to, site){
+  const inRange=d=>(!from||d>=from)&&(!to||d<=to);
+  const volAll=(L.volume||[]);
+  const vol=volAll.filter(r=>inRange(r.d));
+  const wv=(L.worker||[]).filter(r=>inRange(r.d));
+  const df=(L.defects||[]).filter(r=>inRange(r.d));
+  const sum=(rows,f)=>rows.reduce((s,r)=>s+(+f(r)||0),0);
+  const DPMO=(n,d)=>d?Math.round(n/d*1e6):0;
+
+  // ---- KPI（DPMOはcomputeFromLedgersと同じ算法で一貫）----
+  const cf=computeFromLedgers(L, from, to);
+  const stowU=cf.kpi.stowU, pickU=cf.kpi.pickU, rcvU=cf.kpi.rcvU, allU=cf.kpi.allU;
+  const stowDef=df.filter(r=>r.process==='Stow');
+  const pickWork=df.filter(r=>r.process==='Pick'&&r.type!=='欠品');
+  const shelfDef=df.filter(r=>r.process==='欠品');
+  const kpi={
+    stowDpmo:cf.kpi.stowDpmo, pickDpmo:cf.kpi.pickDpmo, rcvDpmo:cf.kpi.rcvDpmo,
+    shortageDpmo:cf.kpi.shortageDpmo, pickShelfDpmo:cf.kpi.pickShelfDpmo, pickWorkDpmo:cf.kpi.pickWorkDpmo,
+    stowUnits:stowU, pickTotalUnits:pickU, rcvUnits:rcvU, allUnits:allU,
+    sipQ:sum(stowDef,r=>r.qty), sipCnt:stowDef.length,
+    pmCnt:pickWork.length, pmUnit:sum(pickWork,r=>r.qty),
+    mfTotal:sum(shelfDef,r=>r.qty),
+  };
+
+  // ---- 日別推移（日別テーブル＋グラフが読む全サブ項目）----
+  const opDays=[...new Set(vol.map(r=>r.d))].filter(Boolean).sort();
+  const days=[...new Set([...opDays, ...df.map(r=>r.d)])].filter(Boolean).sort();
+  const volByDate={}; vol.forEach(r=>{ volByDate[r.d]=r; });
+  const daily=days.map(d=>{
+    const v=volByDate[d]||{stowU:0,pickU:0,receiveU:0,allU:0,ppl:0};
+    const dd=df.filter(r=>r.d===d);
+    const stowD=dd.filter(r=>r.process==='Stow');
+    const pickWorkD=dd.filter(r=>r.process==='Pick'&&r.type!=='欠品');
+    const shelfD=dd.filter(r=>r.process==='欠品');
+    const sq=sum(stowD,r=>r.qty), pmUnit=sum(pickWorkD,r=>r.qty), mfUnit=sum(shelfD,r=>r.qty);
+    return {date:d, su:v.stowU, ru:v.receiveU, tu:v.allU, pickUnits:v.pickU, ppl:v.ppl||0,
+      sipCnt:stowD.length, sq, sh:sum(stowD.filter(r=>r.type==='Shortage'),r=>r.qty), ov:sum(stowD.filter(r=>r.type==='Overage'),r=>r.qty),
+      dpmo:DPMO(sq,v.stowU),
+      pmCnt:pickWorkD.length, pmUnit, workDpmo:DPMO(pmUnit,v.pickU),
+      mfUnit, shelfDpmo:DPMO(mfUnit,v.pickU)};
+  });
+
+  // ---- 作業者別（マスタ登録者=workers / マスタ外=workersOut）----
+  const masterByAcct={}; (MASTER||[]).forEach(m=>{ if(m.アカウント) masterByAcct[String(m.アカウント).trim()]=m; });
+  const noMaster=!(MASTER&&MASTER.length);   // マスタ未登録なら全作業者を集計対象（従来仕様に合わせる）
+  const suByAcct={}, dispByAcct={}, emplidToAcct={};
+  wv.forEach(r=>{ const a=r.acct; if(!a) return; suByAcct[a]=(suByAcct[a]||0)+num(r.stowU);
+    if(r.disp && !dispByAcct[a]) dispByAcct[a]=r.disp; if(r.name && !dispByAcct[a]) dispByAcct[a]=r.name;
+    if(r.emplid) emplidToAcct[String(r.emplid).trim()]=a; });
+  const dagg={};  // acct → 欠陥集計
+  df.forEach(r=>{ const a=r.acct; if(!a) return;
+    const o=dagg[a]||(dagg[a]={stowCnt:0,stowQ:0,sh:0,ov:0,pickCnt:0,name:r.name||''});
+    if(r.process==='Stow'){ o.stowCnt++; o.stowQ+=num(r.qty); if(r.type==='Shortage')o.sh+=num(r.qty); if(r.type==='Overage')o.ov+=num(r.qty); }
+    else if(r.process==='Pick'){ o.pickCnt++; }
+  });
+  const acctSet=new Set([...Object.keys(suByAcct), ...Object.keys(dagg)]);
+  const wIn=[], wOut=[];
+  acctSet.forEach(a=>{
+    const su=suByAcct[a]||0, dg=dagg[a]||{stowCnt:0,stowQ:0,sh:0,ov:0,pickCnt:0,name:''};
+    if(!su && !dg.stowCnt && !dg.pickCnt) return;
+    const dpmo=DPMO(dg.stowQ,su);
+    const m=masterByAcct[a];
+    if(m||noMaster){ wIn.push({氏名:(m&&m.氏名)||dg.name||dispByAcct[a]||a, 時間帯:(m&&m.時間帯)||'', フォーク:(m&&m.フォーク)||'', アカウント:a,
+      su, stowCnt:dg.stowCnt, stowQ:dg.stowQ, sh:dg.sh, ov:dg.ov, pickCnt:dg.pickCnt, dpmo}); }
+    else { wOut.push({アカウント:a, su, stowCnt:dg.stowCnt, stowQ:dg.stowQ, pickCnt:dg.pickCnt, dpmo}); }
+  });
+  const bydpmo=(a,b)=>(b.dpmo-a.dpmo)||(b.su-a.su);
+  wIn.sort(bydpmo); wOut.sort(bydpmo);
+  wIn.forEach((w,i)=>w.no=i+1);
+
+  // ---- 欠落警告（volume日 vs defects各工程の存在日）----
+  const daySet=proc=>new Set(df.filter(r=>proc(r)).map(r=>r.d));
+  const mk=(key,label,proc)=>{ const has=daySet(proc); const missing=opDays.filter(d=>!has.has(d)); return {key,label,missing,opDays:opDays.length}; };
+  const gaps=[
+    mk('stow','Stow欠陥(SIPSDDR)', r=>r.process==='Stow'),
+    mk('work','Pick作業ミス(PickMiss)', r=>r.process==='Pick'&&r.type!=='欠品'),
+    mk('shelf','棚欠品(MissingFloor)', r=>r.process==='欠品'),
+  ];
+
+  // ---- raw（defects 由来のスリム行。renderTradeoff＋ドリルダウンが読む）----
+  const rawSip=stowDef.map(r=>({_date:r.d, user_logins:r.acct, quantity:num(r.qty), 種別:r.type, エリア:r.area, 品目:r.item, 責任所在:r.process}));
+  const rawPm =df.filter(r=>r.process==='Pick').map(r=>({_date:r.d, error_person:r.acct, error_unit:num(r.qty), error_type:r.type, pick_area_name:r.area, 品目:r.item}));
+  const rawMf =shelfDef.map(r=>({_date:r.d, bin_module:r.area, gross_units:num(r.qty), 品目:r.item}));
+
+  // ---- FR紐付け ----
+  const empl2acct=emplidToAcct;
+  const acct2disp=dispByAcct;
+  const dispName=a=>acct2disp[a]||a;
+
+  // QAllDates（全期間・フィルタ非依存＝プリセット基準日用）を台帳の全日付から設定
+  QAllDates=[...new Set(volAll.map(r=>r.d))].filter(Boolean).sort();
+
+  const rf=cf.resolvedFrom||from||'', rt=cf.resolvedTo||to||'';
+  return {
+    site, period:(rf||'最古')+' 〜 '+(rt||'最新'),
+    resolvedFrom:rf, resolvedTo:rt, narrowed:false,
+    kpi, daily, gaps, opDays,
+    workers:wIn, workersOut:wOut,
+    empl2acct, acct2disp, dispName,
+    floorRows:[], pmByType:[],
+    raw:{sipsddr:rawSip, pickmiss:rawPm, missingfloor:rawMf},
+    _ledgerApplied:true, _fromLedger:true
+  };
 }
 
 /* 取込完了フック本体（既存A-1版）：担当サイトを算出し、サマリ＋明細をアップロード
@@ -2572,13 +2702,26 @@ async function recalcQuality(){
   // 進捗表示（取込と共通の上部バーを流用）。段階ごとに「いま何をしているか」を出す。
   Prog.begin('品質を再計算中…', null);
   try{
-    Prog.setPhaseIndet('実績データを集計中…（件数が多いと少し時間がかかります）');
-    await nextPaint();                 // ★重い集計の前に進捗を確実に描画
-    QReport=await computeQuality(site,from,to);
-    console.log('[recalc] computeQuality完了 stowDpmo(旧)=',QReport&&QReport.kpi&&QReport.kpi.stowDpmo);
-    Prog.setPhaseIndet('台帳（欠陥フラグ）を反映中…');
-    await overlayLedgerDpmo(site, from, to);
-    console.log('[recalc] overlay後 stowDpmo=',QReport&&QReport.kpi&&QReport.kpi.stowDpmo,'ledger適用=',QReport&&QReport._ledgerApplied);
+    // [段階5] 台帳優先: クラウドの4台帳があれば台帳ベースで組み立て（computeQualityを飛ばす＝高速・自動反映）。
+    //          台帳が無い端末は従来のcomputeQuality＋DPMOオーバーレイにフォールバック（非破壊）。
+    Prog.setPhaseIndet('台帳を取得中…');
+    await nextPaint();
+    const L=await fetchAllLedgers(site);
+    const hasLedger = L && (((L.defects&&L.defects.length)||0) + ((L.volume&&L.volume.length)||0) > 0);
+    if(hasLedger){
+      Prog.setPhaseIndet('台帳から集計中…（高速）');
+      await nextPaint();
+      QReport=buildQReportFromLedgers(L, from, to, site);
+      console.log('[recalc] 台帳ベース stowDpmo=',QReport.kpi.stowDpmo,'/ defects=',L.defects.length,'/ volume日=',L.volume.length,'/ 作業者=',QReport.workers.length);
+    } else {
+      Prog.setPhaseIndet('実績データを集計中…（台帳が無いため従来計算）');
+      await nextPaint();                 // ★重い集計の前に進捗を確実に描画
+      QReport=await computeQuality(site,from,to);
+      console.log('[recalc] computeQuality完了 stowDpmo(旧)=',QReport&&QReport.kpi&&QReport.kpi.stowDpmo);
+      Prog.setPhaseIndet('台帳（欠陥フラグ）を反映中…');
+      await overlayLedgerDpmo(site, from, to);
+      console.log('[recalc] overlay後 stowDpmo=',QReport&&QReport.kpi&&QReport.kpi.stowDpmo,'ledger適用=',QReport&&QReport._ledgerApplied);
+    }
     Prog.setPhaseIndet('画面を描画中…');
     await nextPaint();
     applyResolvedPeriod();
@@ -2587,7 +2730,8 @@ async function recalcQuality(){
     renderTradeoffInto();
     refreshDataPane();
     console.log('[recalc] 描画完了');
-    Prog.finish(QReport&&QReport._ledgerApplied ? '再計算完了（台帳DPMO反映）' : '再計算完了');
+    Prog.finish(QReport&&QReport._fromLedger ? '再計算完了（台帳ベース・高速）'
+              : (QReport&&QReport._ledgerApplied ? '再計算完了（台帳DPMO反映）' : '再計算完了'));
   }catch(e){
     console.error('[recalc] エラー', e);
     Prog.fail('再計算でエラー: '+((e&&e.message)||e));
