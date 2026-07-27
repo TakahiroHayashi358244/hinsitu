@@ -241,7 +241,7 @@ tr.out td{color:var(--mut);font-style:italic}
   <div class="top">
     <div>
       <div class="title" id="mainTitle">品質×生産性 統合ダッシュボード</div>
-      <div class="sub">DPMO（品質）と UPH（生産性）を1つのツールで。CSV / ZIP をドラッグ&ドロップ、ヘッダーで自動判別。<b>v29</b>：PPRを永続化。「PowerPoint出力」から資料作成ページへ（同一データを自動読込）。</div>
+      <div class="sub">DPMO（品質）と UPH（生産性）を1つのツールで。CSV / ZIP をドラッグ&ドロップ、ヘッダーで自動判別。<b>v148</b>：品質の再計算にも進捗表示を追加（上部バーに「集計中／台帳反映中／描画中」を表示）。取込・クラウド同期・起動読込と共通。</div>
     </div>
     <div style="display:flex;flex-direction:row;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end">
       <div id="siteChip" style="font-size:13px;font-weight:700;padding:6px 14px;border-radius:999px;background:#1f3a5f;color:#fff;white-space:nowrap"></div>
@@ -568,7 +568,7 @@ const LS_CF_SITE='cf_site', LS_CF_BASE='cf_base', LS_CF_TOKEN='cf_token';
    ADMIN_PW       : 管理者モードのパスワード
    SITES_FALLBACK : クラウドの事業所リストが取れない時の初期候補 */
 const CF_BASE_EMBED  = "https://quality-sync.takahiro884.workers.dev";
-const CF_TOKEN_EMBED = "a80ed1f49bb6569cd915069a4134c205";   // ★ここにADMINトークンを貼る（例: "abcd1234..."）
+const CF_TOKEN_EMBED = "";   // ★ここにADMINトークンを貼る（例: "abcd1234..."）
 const ADMIN_PW       = "Gworker000";
 const SITES_FALLBACK = ["HFO1","TPY1","TPZ6","TPB2"];
 
@@ -2560,21 +2560,38 @@ async function populateSitesThenCompute(siteSel){
   siteSel.value=pref;
   recalcQuality();
 }
+/* 画面を1フレーム描画させてから重い同期処理に入るためのyield。
+   computeQuality の前にこれを挟まないと、進捗表示が「処理が終わってから」しか出ない。 */
+function nextPaint(){ return new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))); }
+
 async function recalcQuality(){
   const siteSel=$('#qSite'); if(!siteSel){ console.warn('[recalc] qSite なし'); return; }
   const site=siteSel.value, from=$('#qFrom').value, to=$('#qTo').value;
   console.log('[recalc] 開始 site=',site,'from=',from,'to=',to);
   if(!site){ QReport=null; renderQualPanes(); return; }
-  QReport=await computeQuality(site,from,to);
-  console.log('[recalc] computeQuality完了 stowDpmo(旧)=',QReport&&QReport.kpi&&QReport.kpi.stowDpmo);
-  await overlayLedgerDpmo(site, from, to);
-  console.log('[recalc] overlay後 stowDpmo=',QReport&&QReport.kpi&&QReport.kpi.stowDpmo,'ledger適用=',QReport&&QReport._ledgerApplied);
-  applyResolvedPeriod();
-  renderQualPanes();
-  renderGapBanner();
-  renderTradeoffInto();
-  refreshDataPane();
-  console.log('[recalc] 描画完了');
+  // 進捗表示（取込と共通の上部バーを流用）。段階ごとに「いま何をしているか」を出す。
+  Prog.begin('品質を再計算中…', null);
+  try{
+    Prog.setPhaseIndet('実績データを集計中…（件数が多いと少し時間がかかります）');
+    await nextPaint();                 // ★重い集計の前に進捗を確実に描画
+    QReport=await computeQuality(site,from,to);
+    console.log('[recalc] computeQuality完了 stowDpmo(旧)=',QReport&&QReport.kpi&&QReport.kpi.stowDpmo);
+    Prog.setPhaseIndet('台帳（欠陥フラグ）を反映中…');
+    await overlayLedgerDpmo(site, from, to);
+    console.log('[recalc] overlay後 stowDpmo=',QReport&&QReport.kpi&&QReport.kpi.stowDpmo,'ledger適用=',QReport&&QReport._ledgerApplied);
+    Prog.setPhaseIndet('画面を描画中…');
+    await nextPaint();
+    applyResolvedPeriod();
+    renderQualPanes();
+    renderGapBanner();
+    renderTradeoffInto();
+    refreshDataPane();
+    console.log('[recalc] 描画完了');
+    Prog.finish(QReport&&QReport._ledgerApplied ? '再計算完了（台帳DPMO反映）' : '再計算完了');
+  }catch(e){
+    console.error('[recalc] エラー', e);
+    Prog.fail('再計算でエラー: '+((e&&e.message)||e));
+  }
 }
 
 /* 台帳(欠陥フラグ反映済み)からDPMOを計算し、QReport.kpi を上書きする。
