@@ -241,7 +241,7 @@ tr.out td{color:var(--mut);font-style:italic}
   <div class="top">
     <div>
       <div class="title" id="mainTitle">品質×生産性 統合ダッシュボード</div>
-      <div class="sub">DPMO（品質）と UPH（生産性）を1つのツールで。CSV / ZIP をドラッグ&ドロップ、ヘッダーで自動判別。<b>v150</b>：品質タブを台帳ベースに移行（段階5a）＋描画バグ修正。台帳があれば computeQuality を介さず高速集計＋欠陥フラグを自動反映（KPI/作業者/日別/グラフ/カバレッジ/FR突合）。台帳が無い端末は従来計算にフォールバック。</div>
+      <div class="sub">DPMO（品質）と UPH（生産性）を1つのツールで。CSV / ZIP をドラッグ&ドロップ、ヘッダーで自動判別。<b>v151</b>：品質タブを台帳ベースに移行（段階5a）＋描画バグ修正＋DPMO定義を欠陥管理タブに統一（Pick＝全Pick、欠品＝棚欠品process『欠品』）。台帳があれば computeQuality を介さず高速集計＋欠陥フラグを自動反映。全期間なら品質画面＝欠陥管理で一致。台帳が無い端末は従来計算にフォールバック。</div>
     </div>
     <div style="display:flex;flex-direction:row;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end">
       <div id="siteChip" style="font-size:13px;font-weight:700;padding:6px 14px;border-radius:999px;background:#1f3a5f;color:#fff;white-space:nowrap"></div>
@@ -1755,7 +1755,11 @@ function buildQReportFromLedgers(L, from, to, site){
   const shelfDef=df.filter(r=>r.process==='欠品');
   const kpi={
     stowDpmo:cf.kpi.stowDpmo, pickDpmo:cf.kpi.pickDpmo, rcvDpmo:cf.kpi.rcvDpmo,
-    shortageDpmo:cf.kpi.shortageDpmo, pickShelfDpmo:cf.kpi.pickShelfDpmo, pickWorkDpmo:cf.kpi.pickWorkDpmo,
+    shortageDpmo:cf.kpi.shortageDpmo,
+    // ★欠陥管理タブ(paneDefects)＝正 と同じ定義に揃える（従来 overlayLedgerDpmo と同一マッピング）:
+    //   「Pick DPMO(作業ミス)」表示 = 全Pick(pickDpmo)、「Pick DPMO(欠陥)」表示 = 棚欠品 process'欠品'(shortageDpmo)
+    pickWorkDpmo:cf.kpi.pickDpmo,
+    pickShelfDpmo:cf.kpi.shortageDpmo,
     stowUnits:stowU, pickTotalUnits:pickU, rcvUnits:rcvU, allUnits:allU,
     sipQ:sum(stowDef,r=>r.qty), sipCnt:stowDef.length,
     pmCnt:pickWork.length, pmUnit:sum(pickWork,r=>r.qty),
