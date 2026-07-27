@@ -241,7 +241,7 @@ tr.out td{color:var(--mut);font-style:italic}
   <div class="top">
     <div>
       <div class="title" id="mainTitle">品質×生産性 統合ダッシュボード</div>
-      <div class="sub">DPMO（品質）と UPH（生産性）を1つのツールで。CSV / ZIP をドラッグ&ドロップ、ヘッダーで自動判別。<b>v155</b>：取込時に品質台帳も自動再生成・送信（これが無いと新規データが品質タブに反映されない不具合を修正）＋担当モードから押せる「品質台帳を更新」ボタンを追加。＋欠陥管理タブ改良（確定ボタンを発生日の右横／行クリックで詳細ポップアップ／パスコードその場入力・自動再試行）／起動高速化（5c）／品質タブ台帳ベース（5a）／DPMO定義を欠陥管理に統一。</div>
+      <div class="sub">DPMO（品質）と UPH（生産性）を1つのツールで。CSV / ZIP をドラッグ&ドロップ、ヘッダーで自動判別。<b>v156</b>：上部バーの期間指定（開始/終了/算出期間）を非表示にして1行に整理（品質は常に全期間＝欠陥管理と一致。グラフの期間絞りはグラフカード側で可能）。＋取込時に品質台帳も自動再生成・送信＋「品質台帳を更新」ボタン。＋欠陥管理タブ改良（確定ボタンを発生日の右横／行クリックで詳細ポップアップ／パスコードその場入力・自動再試行）／起動高速化（5c）／品質タブ台帳ベース（5a）／DPMO定義を欠陥管理に統一。</div>
     </div>
     <div style="display:flex;flex-direction:row;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end">
       <div id="siteChip" style="font-size:13px;font-weight:700;padding:6px 14px;border-radius:999px;background:#1f3a5f;color:#fff;white-space:nowrap"></div>
@@ -2641,8 +2641,10 @@ function buildDash(){
   const permWrap=el('div','periodinfo'); permWrap.id='viewPerm'; permWrap.style.cssText='display:flex;flex-direction:column;justify-content:center;font-size:12px;padding:0 4px;font-weight:700';
   fb.appendChild(viewWrap); fb.appendChild(permWrap);
   const siteWrap=el('div'); siteWrap.innerHTML='<label>品質サイト</label>'; const siteSel=el('select'); siteSel.id='qSite'; siteWrap.appendChild(siteSel);
-  const fWrap=el('div'); fWrap.innerHTML='<label>開始(任意)</label>'; const fIn=el('input'); fIn.type='date'; fIn.id='qFrom'; fIn.onchange=()=>recalcQuality(); fWrap.appendChild(fIn);
-  const tWrap=el('div'); tWrap.innerHTML='<label>終了(任意)</label>'; const tIn=el('input'); tIn.type='date'; tIn.id='qTo'; tIn.onchange=()=>recalcQuality(); tWrap.appendChild(tIn);
+  // [段階5] 上部バーの期間指定は非表示（品質は常に全期間＝欠陥管理と一致）。ただし #qFrom/#qTo は
+  //   グラフカードの期間ピッカーやPowerPoint/Excel出力が参照するため、要素は隠して残す。
+  const fWrap=el('div'); fWrap.style.display='none'; fWrap.innerHTML='<label>開始(任意)</label>'; const fIn=el('input'); fIn.type='date'; fIn.id='qFrom'; fIn.onchange=()=>recalcQuality(); fWrap.appendChild(fIn);
+  const tWrap=el('div'); tWrap.style.display='none'; tWrap.innerHTML='<label>終了(任意)</label>'; const tIn=el('input'); tIn.type='date'; tIn.id='qTo'; tIn.onchange=()=>recalcQuality(); tWrap.appendChild(tIn);
   const goWrap=el('div'); const go=el('button','btn pri','品質を再計算'); go.onclick=()=>recalcQuality(); goWrap.appendChild(go);
   // [段階5] 取込済みデータを品質台帳へ反映（担当端末が管理者モードに入らず更新できる）。品質タブは台帳を読むため。
   const ledWrap=el('div');
@@ -2659,7 +2661,7 @@ function buildDash(){
     };
     ledWrap.appendChild(led);
   }
-  const periodWrap=el('div','periodinfo'); periodWrap.id='qPeriodInfo'; periodWrap.style.cssText='display:flex;flex-direction:column;justify-content:center;font-size:12px;color:#5a6b86;padding-left:4px';
+  const periodWrap=el('div','periodinfo'); periodWrap.id='qPeriodInfo'; periodWrap.style.cssText='display:none';  // [段階5] 算出期間表示は非表示（要素はapplyResolvedPeriodのため残す）
   const sp=el('div','spacer');
   const pptWrap=el('div');
   const ppt=el('button','btn pri','PowerPoint出力');
