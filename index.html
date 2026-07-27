@@ -241,7 +241,7 @@ tr.out td{color:var(--mut);font-style:italic}
   <div class="top">
     <div>
       <div class="title" id="mainTitle">品質×生産性 統合ダッシュボード</div>
-      <div class="sub">DPMO（品質）と UPH（生産性）を1つのツールで。CSV / ZIP をドラッグ&ドロップ、ヘッダーで自動判別。<b>v156</b>：上部バーの期間指定（開始/終了/算出期間）を非表示にして1行に整理（品質は常に全期間＝欠陥管理と一致。グラフの期間絞りはグラフカード側で可能）。＋取込時に品質台帳も自動再生成・送信＋「品質台帳を更新」ボタン。＋欠陥管理タブ改良（確定ボタンを発生日の右横／行クリックで詳細ポップアップ／パスコードその場入力・自動再試行）／起動高速化（5c）／品質タブ台帳ベース（5a）／DPMO定義を欠陥管理に統一。</div>
+      <div class="sub">DPMO（品質）と UPH（生産性）を1つのツールで。CSV / ZIP をドラッグ&ドロップ、ヘッダーで自動判別。<b>v157</b>：ASINを台帳に追加し欠陥管理一覧の商品名の左横・行クリックのポップアップ・品質ドリルダウン明細に表示（反映には「品質台帳を更新」で上げ直しが必要）。＋上部バーの期間指定を非表示にして1行整理／取込時に品質台帳も自動更新＋「品質台帳を更新」ボタン。＋欠陥管理タブ改良（確定ボタンを発生日の右横／行クリックで詳細ポップアップ／パスコードその場入力・自動再試行）／起動高速化（5c）／品質タブ台帳ベース（5a）／DPMO定義を欠陥管理に統一。</div>
     </div>
     <div style="display:flex;flex-direction:row;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end">
       <div id="siteChip" style="font-size:13px;font-weight:700;padding:6px 14px;border-radius:999px;background:#1f3a5f;color:#fff;white-space:nowrap"></div>
@@ -568,7 +568,7 @@ const LS_CF_SITE='cf_site', LS_CF_BASE='cf_base', LS_CF_TOKEN='cf_token';
    ADMIN_PW       : 管理者モードのパスワード
    SITES_FALLBACK : クラウドの事業所リストが取れない時の初期候補 */
 const CF_BASE_EMBED  = "https://quality-sync.takahiro884.workers.dev";
-const CF_TOKEN_EMBED = "a80ed1f49bb6569cd915069a4134c205";   // ★ここにADMINトークンを貼る（例: "abcd1234..."）
+const CF_TOKEN_EMBED = "";   // ★ここにADMINトークンを貼る（例: "abcd1234..."）
 const ADMIN_PW       = "Gworker000";
 const SITES_FALLBACK = ["HFO1","TPY1","TPZ6","TPB2"];
 
@@ -1547,7 +1547,7 @@ async function buildDefects(site){
       id:r.problem_id, d:r._date, site,
       process:'Stow', type:normDefectType(r.symptoms),
       acct:r.user_logins||'', name:nm(r.user_logins),
-      area:r.current_container||r.original_container||'', item:r.item_name||r.asin||'',
+      area:r.current_container||r.original_container||'', item:r.item_name||r.asin||'', asin:r.asin||'',
       qty:num(r.quantity),
       origProcess:'Stow', origType:normDefectType(r.symptoms),
       causeType:'', cause:'', updatedBy:'ingest'
@@ -1562,7 +1562,7 @@ async function buildDefects(site){
       id:r.errror_id, d:r._date, site,
       process:proc, type:normDefectType(r.error_type),
       acct:r.error_person||'', name:nm(r.error_person),
-      area:r.pick_area_name||r.error_bin_id||'', item:r.item_name||r.asin||'',
+      area:r.pick_area_name||r.error_bin_id||'', item:r.item_name||r.asin||'', asin:r.asin||'',
       qty:num(r.error_unit),
       origProcess:proc, origType:normDefectType(r.error_type),
       causeType:'', cause:'', updatedBy:'ingest'
@@ -1576,7 +1576,7 @@ async function buildDefects(site){
       id, d:r._date, site,
       process:'欠品', type:'欠品',
       acct:'', name:'',
-      area:r.bin_module||r.drop_zone_name||'', item:r.title||r.asin||'',
+      area:r.bin_module||r.drop_zone_name||'', item:r.title||r.asin||'', asin:r.asin||'',
       qty:num(r.gross_units||r.quantity),
       origProcess:'欠品', origType:'欠品',
       causeType:'', cause:'', updatedBy:'ingest'
@@ -1860,9 +1860,9 @@ function buildQReportFromLedgers(L, from, to, site){
   ];
 
   // ---- raw（defects 由来のスリム行。renderTradeoff＋ドリルダウンが読む）----
-  const rawSip=stowDef.map(r=>({_date:r.d, user_logins:r.acct, quantity:num(r.qty), 種別:r.type, エリア:r.area, 品目:r.item, 責任所在:r.process}));
-  const rawPm =df.filter(r=>r.process==='Pick').map(r=>({_date:r.d, error_person:r.acct, error_unit:num(r.qty), error_type:r.type, pick_area_name:r.area, 品目:r.item}));
-  const rawMf =shelfDef.map(r=>({_date:r.d, bin_module:r.area, gross_units:num(r.qty), 品目:r.item}));
+  const rawSip=stowDef.map(r=>({_date:r.d, user_logins:r.acct, quantity:num(r.qty), 種別:r.type, エリア:r.area, ASIN:r.asin||'', 品目:r.item, 責任所在:r.process}));
+  const rawPm =df.filter(r=>r.process==='Pick').map(r=>({_date:r.d, error_person:r.acct, error_unit:num(r.qty), error_type:r.type, pick_area_name:r.area, ASIN:r.asin||'', 品目:r.item}));
+  const rawMf =shelfDef.map(r=>({_date:r.d, bin_module:r.area, gross_units:num(r.qty), ASIN:r.asin||'', 品目:r.item}));
 
   // ---- FR紐付け ----
   const empl2acct=emplidToAcct;
@@ -3081,7 +3081,7 @@ function paneDefects(pane){
     const t=el('table','tbl'); t.style.fontSize='12px';
     const thead=el('thead'); const htr=el('tr');
     // ★確定ボタンを含む「状態」列を発生日の右横（2列目）に配置＝横スクロール不要
-    ['発生日','状態','責任所在','種別','作業者','エリア','商品','数量','真因(定型)','メモ'].forEach(h=>{const th=el('th');th.textContent=h;htr.appendChild(th);});
+    ['発生日','状態','責任所在','種別','作業者','エリア','ASIN','商品','数量','真因(定型)','メモ'].forEach(h=>{const th=el('th');th.textContent=h;htr.appendChild(th);});
     thead.appendChild(htr); t.appendChild(thead);
     const tb=el('tbody');
     rows.forEach(r=>{
@@ -3105,7 +3105,9 @@ function paneDefects(pane){
       td=el('td'); td.textContent=(r.name||r.acct||''); tr.appendChild(td);
       // 6) エリア
       td=el('td'); td.textContent=r.area||''; tr.appendChild(td);
-      // 7) 商品
+      // 7) ASIN（商品の左横）
+      td=el('td'); td.textContent=r.asin||''; td.style.whiteSpace='nowrap'; td.style.fontFamily='ui-monospace,Menlo,monospace'; td.title=r.asin||''; tr.appendChild(td);
+      // 8) 商品
       td=el('td'); td.textContent=(r.item||'').slice(0,20); td.title=r.item||''; tr.appendChild(td);
       // 8) 数量
       td=el('td'); td.textContent=r.qty; td.style.textAlign='right'; tr.appendChild(td);
@@ -3211,6 +3213,7 @@ function showDefectDetail(r, tr, confirmed){
     +rowLine('種別',r.type)
     +rowLine('作業者',r.name||r.acct)
     +rowLine('エリア',r.area)
+    +rowLine('ASIN',r.asin)
     +rowLine('商品',r.item)
     +rowLine('数量',r.qty)
     +rowLine('真因(定型)',r.causeType)
