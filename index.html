@@ -241,7 +241,7 @@ tr.out td{color:var(--mut);font-style:italic}
   <div class="top">
     <div>
       <div class="title" id="mainTitle">品質×生産性 統合ダッシュボード</div>
-      <div class="sub">DPMO（品質）と UPH（生産性）を1つのツールで。CSV / ZIP をドラッグ&ドロップ、ヘッダーで自動判別。<b>v159</b>：グラフの各棒の上にDPMO値を表示（週別・項目別・個人別。棒が多い日別は混雑回避のため非表示）。＋「週別 DPMO」棒グラフ（軸切替。指標連動、棒クリックで週明細）。＋ASINを台帳に追加し欠陥管理一覧の商品名の左横・ポップアップ・品質ドリルダウンに表示／上部バーの期間指定を非表示で1行整理／取込時に品質台帳も自動更新＋「品質台帳を更新」ボタン。＋欠陥管理タブ改良（確定ボタンを発生日の右横／行クリックで詳細ポップアップ／パスコードその場入力・自動再試行）／起動高速化（5c）／品質タブ台帳ベース（5a）／DPMO定義を欠陥管理に統一。</div>
+      <div class="sub">DPMO（品質）と UPH（生産性）を1つのツールで。CSV / ZIP をドラッグ&ドロップ、ヘッダーで自動判別。<b>v160</b>：生産性グラフに「週別 UPH」を追加（日曜起点＝品質の週区切りと同じ。工程・データソース選択に連動、値ラベル小数1桁、棒クリックで週UPH表示）。＋グラフの棒の上にDPMO/UPH値を表示（週別・項目別・個人別）。＋「週別 DPMO」棒グラフ（軸切替。指標連動、棒クリックで週明細）。＋ASINを台帳に追加し欠陥管理一覧の商品名の左横・ポップアップ・品質ドリルダウンに表示／上部バーの期間指定を非表示で1行整理／取込時に品質台帳も自動更新＋「品質台帳を更新」ボタン。＋欠陥管理タブ改良（確定ボタンを発生日の右横／行クリックで詳細ポップアップ／パスコードその場入力・自動再試行）／起動高速化（5c）／品質タブ台帳ベース（5a）／DPMO定義を欠陥管理に統一。</div>
     </div>
     <div style="display:flex;flex-direction:row;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end">
       <div id="siteChip" style="font-size:13px;font-weight:700;padding:6px 14px;border-radius:999px;background:#1f3a5f;color:#fff;white-space:nowrap"></div>
@@ -2469,6 +2469,7 @@ function barChart(labels, series, unit, onBar, overlay, opts){
   const hasOverlay=!!(overlay&&overlay.points&&overlay.points.length);
   // 値ラベルは「単一系列・本数が多すぎない・折れ線オーバーレイ無し」のときだけ（混雑・重なり回避）
   const showValues=!!opts.showValues && series.length===1 && labels.length<=16 && !hasOverlay;
+  const vfmt=opts.fmt||fmtI;   // 値ラベルの書式（DPMO=整数fmtI / UPH=小数fmt など）
   const padL=56,padR=16,padT=hasOverlay?84:(showValues?26:14);
   const groupW=Math.max(44, Math.min(90, 640/Math.max(labels.length,1)));
   const _maxLab=labels.reduce((m,l)=>Math.max(m,String(l).length),0);
@@ -2500,7 +2501,7 @@ function barChart(labels, series, unit, onBar, overlay, opts){
       svg.appendChild(mk('rect',{x,y,width:bw,height:Math.max(h,0),fill:s.color,rx:2}));
       if(showValues){
         const tv=mk('text',{x:x+bw/2,y:Math.max(padT+9,y-4),'text-anchor':'middle','font-size':10.5,'font-weight':600,fill:'#2a3446'});
-        tv.textContent=fmtI(v); svg.appendChild(tv);
+        tv.textContent=vfmt(v); svg.appendChild(tv);
       }
     });
     // ラベルが列幅に収まらない場合は45度回転（日付が重ならないように）
@@ -3584,6 +3585,7 @@ function paneProd(pane){
   const bar=el('div','axisbar');
   const btns=[];
   if(hasDay()) btns.push(['daily','日別推移(工程選択)']);
+  if(hasDay()) btns.push(['weekly','週別 UPH']);
   if(S.fr.length) btns.push(['person','個人別 UPH']);
   const pick=el('select','pick'); pick.style.display='none';
   btns.forEach(([id,lab])=>{ const b=el('button','axisbtn p'+(axisState.mode===id?' on':''),lab); b.dataset.m=id; b.onclick=()=>{ axisState.mode=id; drawP(); }; bar.appendChild(b); });
@@ -3629,7 +3631,7 @@ function paneProd(pane){
     bar.querySelectorAll('.axisbtn').forEach(b=>b.classList.toggle('on', b.dataset.m===axisState.mode));
     pick.style.display = axisState.mode==='person'?'inline-block':'none';
     procBar.innerHTML=''; procBar.style.display='none';
-    if(axisState.mode==='daily'){
+    if(axisState.mode==='daily'||axisState.mode==='weekly'){
       cb.appendChild(pRangeBar); pRangeBar.style.display='flex';
       const piv=pprPivot();
       let dateArr=piv.dateArr; const map=piv.map;
@@ -3710,21 +3712,41 @@ function paneProd(pane){
       head.appendChild(clickInfo);
       cb.appendChild(head);
 
-      // 選んだ1工程だけの日次推移（棒クリックでその日の値を表示）
-      const labels=dateArr.map(d=>d.slice(5));   // MM-DD（年は範囲表示で分かるため省略し重なりを防ぐ）
-      const dailyUph=dateArr.map(dt=>{const m=K(dt);return m&&m.hrs?m.vol/m.hrs:null;});
-      const series=[{name:cp+' UPH ('+SRC+')',color,data:dailyUph}];
-      const onBar=i=>{
-        const dt=dateArr[i], m=K(dt);
-        const u=dailyUph[i];
-        clickInfo.innerHTML='<b>'+dt+'</b> ／ UPH <b style="color:'+color+'">'+(u!=null?fmt(u):'–')+'</b>'
-          +(m?'（Vol '+fmtI(m.vol)+' ／ '+fmt(m.hrs)+'h）':'（データなし）');
-      };
-      const {svg,legend}=barChart(labels,series,'UPH',onBar); const w=el('div','chartwrap clickable'); w.appendChild(svg); cb.appendChild(w); cb.appendChild(legend);
-      const nt=el('div','note');
-      nt.innerHTML='工程ボタンで表示を切替。棒（日付）クリックでその日のUPHを上段に表示。'
-        +(srcAvail.length>1?'<br><b>PPR</b>＝processPathReport（FC全体集計）。<b>FR</b>＝functionRollupReport（作業者別を日別合算）。母集団が異なるため同じ工程でも値は完全一致しません。':'');
-      cb.appendChild(nt);
+      if(axisState.mode==='weekly'){
+        // 週別UPH（日曜起点＝品質の週区切りと同じ。UPH=週内Vol合計÷週内工数合計）
+        const byWeek={};
+        dateArr.forEach(dt=>{ const m=K(dt); const sun=sundayOf(dt);
+          if(!byWeek[sun]) byWeek[sun]={vol:0,hrs:0,wk:weekNumberOf(dt),sunday:sun};
+          if(m){ byWeek[sun].vol+=m.vol; byWeek[sun].hrs+=m.hrs; } });
+        const weeks=Object.values(byWeek).sort((a,b)=>a.sunday<b.sunday?-1:1);
+        const p2=n=>String(n).padStart(2,'0');
+        const rangeLabel=sun=>{ const e=new Date(sun); e.setDate(e.getDate()+6); return sun.slice(5)+'〜'+p2(e.getMonth()+1)+'-'+p2(e.getDate()); };
+        const labels=weeks.map(w=>'WK'+w.wk);
+        const series=[{name:cp+' 週次UPH ('+SRC+')',color,data:weeks.map(w=>w.hrs?w.vol/w.hrs:null)}];
+        const onBar=i=>{ const w=weeks[i]; const u=w.hrs?w.vol/w.hrs:null;
+          clickInfo.innerHTML='<b>WK'+w.wk+'</b> '+rangeLabel(w.sunday)+' ／ UPH <b style="color:'+color+'">'+(u!=null?fmt(u):'–')+'</b>（Vol '+fmtI(w.vol)+' ／ '+fmt(w.hrs)+'h）'; };
+        const {svg,legend}=barChart(labels,series,'UPH',onBar,null,{showValues:true,fmt}); const w=el('div','chartwrap clickable'); w.appendChild(svg); cb.appendChild(w); cb.appendChild(legend);
+        const nt=el('div','note');
+        nt.innerHTML='工程・データソースで表示を切替。棒（週）クリックでその週のUPHを上段に表示。日曜起点（品質の週区切りと同じ）。<br>'
+          +weeks.map(w=>'<b>WK'+w.wk+'</b> '+rangeLabel(w.sunday)+' = '+(w.hrs?fmt(w.vol/w.hrs):'–')).join('　/　');
+        cb.appendChild(nt);
+      } else {
+        // 選んだ1工程だけの日次推移（棒クリックでその日の値を表示）
+        const labels=dateArr.map(d=>d.slice(5));   // MM-DD（年は範囲表示で分かるため省略し重なりを防ぐ）
+        const dailyUph=dateArr.map(dt=>{const m=K(dt);return m&&m.hrs?m.vol/m.hrs:null;});
+        const series=[{name:cp+' UPH ('+SRC+')',color,data:dailyUph}];
+        const onBar=i=>{
+          const dt=dateArr[i], m=K(dt);
+          const u=dailyUph[i];
+          clickInfo.innerHTML='<b>'+dt+'</b> ／ UPH <b style="color:'+color+'">'+(u!=null?fmt(u):'–')+'</b>'
+            +(m?'（Vol '+fmtI(m.vol)+' ／ '+fmt(m.hrs)+'h）':'（データなし）');
+        };
+        const {svg,legend}=barChart(labels,series,'UPH',onBar); const w=el('div','chartwrap clickable'); w.appendChild(svg); cb.appendChild(w); cb.appendChild(legend);
+        const nt=el('div','note');
+        nt.innerHTML='工程ボタンで表示を切替。棒（日付）クリックでその日のUPHを上段に表示。'
+          +(srcAvail.length>1?'<br><b>PPR</b>＝processPathReport（FC全体集計）。<b>FR</b>＝functionRollupReport（作業者別を日別合算）。母集団が異なるため同じ工程でも値は完全一致しません。':'');
+        cb.appendChild(nt);
+      }
     } else {
       const wname=axisState.worker||pick.value;
       const rows=S.fr.filter(r=>disp(r.name)===wname);
