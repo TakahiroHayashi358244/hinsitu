@@ -241,7 +241,7 @@ tr.out td{color:var(--mut);font-style:italic}
   <div class="top">
     <div>
       <div class="title" id="mainTitle">品質×生産性 統合ダッシュボード</div>
-      <div class="sub">DPMO（品質）と UPH（生産性）を1つのツールで。CSV / ZIP をドラッグ&ドロップ、ヘッダーで自動判別。<b>v149</b>：品質タブを台帳ベースに移行（段階5a）。台帳があれば computeQuality を介さず高速集計＋欠陥フラグを自動反映（KPI/作業者/日別/グラフ/カバレッジ/FR突合）。台帳が無い端末は従来計算にフォールバック。</div>
+      <div class="sub">DPMO（品質）と UPH（生産性）を1つのツールで。CSV / ZIP をドラッグ&ドロップ、ヘッダーで自動判別。<b>v150</b>：品質タブを台帳ベースに移行（段階5a）＋描画バグ修正。台帳があれば computeQuality を介さず高速集計＋欠陥フラグを自動反映（KPI/作業者/日別/グラフ/カバレッジ/FR突合）。台帳が無い端末は従来計算にフォールバック。</div>
     </div>
     <div style="display:flex;flex-direction:row;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end">
       <div id="siteChip" style="font-size:13px;font-weight:700;padding:6px 14px;border-radius:999px;background:#1f3a5f;color:#fff;white-space:nowrap"></div>
@@ -2112,7 +2112,7 @@ async function computeNeededZips(){
 async function renderNeededPanel(host){
   const {feeds,target}=await computeNeededZips();
   const c=card('日次取込チェックリスト（次に必要なZIP）');
-  const cb=c.querySelector('.cbody');
+  const cb=c._body;
   const behind=feeds.filter(f=>f.status!=='ok');
   const head=el('div','note');
   head.innerHTML= target
@@ -2152,7 +2152,7 @@ async function renderNeededPanel(host){
 async function renderLedgerPanel(host){
   const logs=await getFileLogs();
   const c=card('取込台帳（'+logs.length+'ファイル）');
-  const cb=c.querySelector('.cbody');
+  const cb=c._body;
   if(!logs.length){ cb.appendChild(el('div','note','まだ取込履歴がありません。')); host.appendChild(c); return; }
   const bar=el('div','row'); bar.style.marginBottom='8px';
   const bc=el('button','btn gho','台帳をクリア');
@@ -2187,7 +2187,7 @@ function renderCoveragePanel(host, R){
   if(!R||!R.gaps) return;
   const anyMiss=R.gaps.some(g=>g.missing.length);
   const c=card('データカバレッジ（欠落日は「欠陥0件」として算出）');
-  const cb=c.querySelector('.cbody');
+  const cb=c._body;
   if(anyMiss){
     const w=el('div');
     w.style.cssText='background:#fff7ed;border:1px solid #fdba74;border-radius:8px;padding:11px;color:#9a3412;font-size:12.5px;margin-bottom:10px';
@@ -2230,7 +2230,7 @@ function renderPprCheck(host){
   if(!S.ppr.length) return;
   const pv={}; S.ppr.forEach(r=>{ pv[r.cp]=(pv[r.cp]||0)+r.vol; });
   const c=card('PPR 検算（分母はOpsUnits。PPRは参照値）');
-  const cb=c.querySelector('.cbody');
+  const cb=c._body;
   cb.appendChild(el('div','note','DPMOの分母は実績データ(OpsUnits)を使用します。PPRは日別・個人別に分解できないため、ここでは整合性チェックにのみ使用します。Stow分母 = Stow to Prime + Transfer In（Transfer In作業も棚入れの欠陥機会に含むため）。'));
   const t=el('table','tbl'); const th=el('thead'); const tr=el('tr');
   ['工程','PPR(参照)','備考'].forEach((x,i)=>tr.appendChild(thH(x,i===0||i===2)));
@@ -2814,7 +2814,7 @@ function renderTradeoff(host){
     return; // FR日別が無ければ出さない
   }
   const c=card('個人×日別　UPH × DPMO 突合（速さと品質のトレードオフ）');
-  const cb=c.querySelector('.cbody');
+  const cb=c._body;
 
   if(!QReport){
     cb.appendChild(el('div','note','品質データを算出すると、同一作業者・同一日で UPH と 欠陥 を突合します。'));
