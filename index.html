@@ -241,7 +241,7 @@ tr.out td{color:var(--mut);font-style:italic}
   <div class="top">
     <div>
       <div class="title" id="mainTitle">品質×生産性 統合ダッシュボード</div>
-      <div class="sub">DPMO（品質）と UPH（生産性）を1つのツールで。CSV / ZIP をドラッグ&ドロップ、ヘッダーで自動判別。<b>v152</b>：起動高速化（段階5c）。ローカルが最新なら生データ22.7万件の再取得を省略、取込後は自分の版を適用済み記録、サイト一覧の全件走査を廃止。＋品質タブ台帳ベース化（5a）／描画バグ修正／DPMO定義を欠陥管理に統一（Pick＝全Pick、欠品＝棚欠品）。全期間なら品質画面＝欠陥管理で一致。</div>
+      <div class="sub">DPMO（品質）と UPH（生産性）を1つのツールで。CSV / ZIP をドラッグ&ドロップ、ヘッダーで自動判別。<b>v153</b>：欠陥管理タブ改良——確定ボタンを「状態」列として発生日の右横に移動（横スクロール不要）、行クリックで詳細ポップアップ（クリック行に被らない位置に表示）。＋起動高速化（5c）／品質タブ台帳ベース化（5a）／DPMO定義を欠陥管理に統一。全期間なら品質画面＝欠陥管理で一致。</div>
     </div>
     <div style="display:flex;flex-direction:row;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end">
       <div id="siteChip" style="font-size:13px;font-weight:700;padding:6px 14px;border-radius:999px;background:#1f3a5f;color:#fff;white-space:nowrap"></div>
@@ -568,7 +568,7 @@ const LS_CF_SITE='cf_site', LS_CF_BASE='cf_base', LS_CF_TOKEN='cf_token';
    ADMIN_PW       : 管理者モードのパスワード
    SITES_FALLBACK : クラウドの事業所リストが取れない時の初期候補 */
 const CF_BASE_EMBED  = "https://quality-sync.takahiro884.workers.dev";
-const CF_TOKEN_EMBED = "a80ed1f49bb6569cd915069a4134c205";   // ★ここにADMINトークンを貼る（例: "abcd1234..."）
+const CF_TOKEN_EMBED = "";   // ★ここにADMINトークンを貼る（例: "abcd1234..."）
 const ADMIN_PW       = "Gworker000";
 const SITES_FALLBACK = ["HFO1","TPY1","TPZ6","TPB2"];
 
@@ -3014,6 +3014,7 @@ function paneDefects(pane){
   }
 
   function render(){
+    const _p=document.getElementById('defectPop'); if(_p) _p.style.display='none';  // 再描画時はポップアップを閉じる
     const f=filt.value;
     let rows=DEFECTS_CACHE.slice().sort((a,b)=>a.d<b.d?1:a.d>b.d?-1:0); // 新しい順
     if(f==='未確定のみ') rows=rows.filter(r=>!(r.updatedBy&&r.updatedBy!=='ingest'));
@@ -3022,44 +3023,40 @@ function paneDefects(pane){
 
     const t=el('table','tbl'); t.style.fontSize='12px';
     const thead=el('thead'); const htr=el('tr');
-    ['発生日','責任所在','種別','作業者','エリア','商品','数量','真因(定型)','メモ','状態'].forEach(h=>{const th=el('th');th.textContent=h;htr.appendChild(th);});
+    // ★確定ボタンを含む「状態」列を発生日の右横（2列目）に配置＝横スクロール不要
+    ['発生日','状態','責任所在','種別','作業者','エリア','商品','数量','真因(定型)','メモ'].forEach(h=>{const th=el('th');th.textContent=h;htr.appendChild(th);});
     thead.appendChild(htr); t.appendChild(thead);
     const tb=el('tbody');
     rows.forEach(r=>{
-      const tr=el('tr');
+      const tr=el('tr'); tr.style.cursor='pointer'; tr.title='クリックで詳細';
       const confirmed=(r.updatedBy&&r.updatedBy!=='ingest');
       const paintRow=on=>{ tr.style.background = on ? '#eafaf0' : ''; };
       paintRow(confirmed);
-      // 発生日
-      let td=el('td'); td.textContent=r.d||''; tr.appendChild(td);
-      // 責任所在（ドロップダウン）
+      // 1) 発生日
+      let td=el('td'); td.textContent=r.d||''; td.style.whiteSpace='nowrap'; tr.appendChild(td);
+      // 2) 状態＋確定ボタン（発生日の右横。ボタンはここに置くので横スクロール不要）
+      const tdState=el('td'); tdState.style.whiteSpace='nowrap';
+      const badge=el('span'); badge.textContent=confirmed?'確定':'未確定'; badge.style.cssText='font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;'+(confirmed?'background:#dcfce7;color:#166534':'background:#f1f5f9;color:#64748b');
+      tdState.appendChild(badge); tr.appendChild(tdState);
+      // 3) 責任所在（ドロップダウン）
       td=el('td'); const selP=el('select'); PROCESS_OPTS.forEach(o=>{const op=el('option');op.value=o;op.textContent=o;if(o===r.process)op.selected=true;selP.appendChild(op);});
       selP.disabled=!writable; td.appendChild(selP); tr.appendChild(td);
-      // 種別
+      // 4) 種別
       td=el('td'); const selT=el('select'); TYPE_OPTS.forEach(o=>{const op=el('option');op.value=o;op.textContent=o;if(o===r.type)op.selected=true;selT.appendChild(op);});
       selT.disabled=!writable; td.appendChild(selT); tr.appendChild(td);
-      // 作業者
+      // 5) 作業者
       td=el('td'); td.textContent=(r.name||r.acct||''); tr.appendChild(td);
-      // エリア
+      // 6) エリア
       td=el('td'); td.textContent=r.area||''; tr.appendChild(td);
-      // 商品
+      // 7) 商品
       td=el('td'); td.textContent=(r.item||'').slice(0,20); td.title=r.item||''; tr.appendChild(td);
-      // 数量
+      // 8) 数量
       td=el('td'); td.textContent=r.qty; td.style.textAlign='right'; tr.appendChild(td);
-      // 真因プリセット
+      // 9) 真因プリセット
       td=el('td'); const selC=el('select'); CAUSE_PRESETS.forEach(o=>{const op=el('option');op.value=o;op.textContent=o||'(未選択)';if(o===r.causeType)op.selected=true;selC.appendChild(op);});
       selC.disabled=!writable; td.appendChild(selC); tr.appendChild(td);
-      // 真因メモ（自由記述）
+      // 10) 真因メモ（自由記述）
       td=el('td'); const inpM=el('input'); inpM.type='text'; inpM.value=r.cause||''; inpM.placeholder='任意'; inpM.style.cssText='width:120px;padding:3px 6px;border:1px solid #cfd8e6;border-radius:6px;font-size:12px'; inpM.disabled=!writable; td.appendChild(inpM); tr.appendChild(td);
-      // 状態
-      td=el('td'); const badge=el('span'); badge.textContent=confirmed?'確定':'未確定'; badge.style.cssText='font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;'+(confirmed?'background:#dcfce7;color:#166534':'background:#f1f5f9;color:#64748b'); td.appendChild(badge);
-      if(writable && !confirmed){
-        const okBtn=el('button','', ' 確定'); okBtn.style.cssText='margin-left:6px;font-size:11px;padding:2px 8px;border:1px solid #86c99a;background:#f0fdf4;color:#166534;border-radius:6px;cursor:pointer';
-        okBtn.title='変更せずこのまま確定（確認済みにする）';
-        okBtn.onclick=()=>save();
-        td.appendChild(okBtn);
-      }
-      tr.appendChild(td);
 
       // 保存処理（変更で即PATCH。ボタンでも呼ばれる＝変更なし確定）
       const save=async()=>{
@@ -3070,12 +3067,21 @@ function paneDefects(pane){
           await cfPatchDefect(site, edit);
           Object.assign(r, {process:selP.value,type:selT.value,causeType:selC.value,cause:inpM.value,updatedBy:edit.by});
           badge.textContent='確定'; badge.style.cssText='font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;background:#dcfce7;color:#166534';
-          const ob=td.querySelector('button'); if(ob) ob.remove();
+          const ob=tdState.querySelector('button'); if(ob) ob.remove();
           paintRow(true);
           recalcKpi(); msg.textContent='確定しました（'+r.id.slice(0,12)+'…）';
         }catch(e){ msg.textContent='保存失敗: '+e.message; }
       };
+      // 確定ボタン（状態セルへ。saveの定義後に配線）
+      if(writable && !confirmed){
+        const okBtn=el('button','','確定'); okBtn.style.cssText='margin-left:6px;font-size:11px;padding:2px 8px;border:1px solid #86c99a;background:#f0fdf4;color:#166534;border-radius:6px;cursor:pointer';
+        okBtn.title='変更せずこのまま確定（確認済みにする）';
+        okBtn.onclick=(e)=>{ e.stopPropagation(); save(); };
+        tdState.appendChild(okBtn);
+      }
       selP.onchange=save; selT.onchange=save; selC.onchange=save; inpM.onchange=save;
+      // 操作要素以外をクリックしたら詳細ポップアップ（クリック行に被らない位置に表示）
+      tr.addEventListener('click',(e)=>{ if(e.target.closest('select,input,button')) return; showDefectDetail(r, tr, confirmed); });
       tb.appendChild(tr);
     });
     t.appendChild(tb); tableWrap.innerHTML=''; tableWrap.appendChild(t);
@@ -3117,6 +3123,51 @@ function paneDefects(pane){
     bulkBtn.disabled=false;
   };
   load();
+}
+
+/* 欠陥明細ポップアップ（行クリック）。クリックした行に被らない位置（行の下、無理なら上）に表示。 */
+function showDefectDetail(r, tr, confirmed){
+  let pop=document.getElementById('defectPop');
+  if(!pop){
+    pop=document.createElement('div'); pop.id='defectPop';
+    pop.style.cssText='position:fixed;z-index:80;width:min(440px,92vw);background:#fff;border:1px solid #cfd8e6;border-radius:12px;box-shadow:0 14px 44px rgba(20,40,80,.30);padding:14px 16px;font-size:13px;color:#1f2937;display:none';
+    document.body.appendChild(pop);
+    // 外側クリックで閉じる（行内クリックは行側で処理）。capture段階で判定。
+    document.addEventListener('click',(e)=>{
+      if(pop.style.display==='none') return;
+      if(pop.contains(e.target)) return;
+      if(e.target.closest && e.target.closest('#pane-defects tr')) return;
+      pop.style.display='none';
+    }, true);
+    document.addEventListener('keydown',(e)=>{ if(e.key==='Escape') pop.style.display='none'; });
+  }
+  const rowLine=(k,v)=>'<div style="display:flex;gap:10px;margin:4px 0"><div style="min-width:88px;color:#64748b;flex-shrink:0">'+k+'</div><div style="flex:1;font-weight:600;word-break:break-word">'+((v==null||v==='')?'—':String(v))+'</div></div>';
+  pop.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:12px">'
+    +'<b style="font-size:14px">欠陥明細</b>'
+    +'<span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;'+(confirmed?'background:#dcfce7;color:#166534':'background:#f1f5f9;color:#64748b')+'">'+(confirmed?'確定':'未確定')+'</span>'
+    +'<button id="defectPopX" style="border:none;background:none;font-size:20px;line-height:1;color:#94a3b8;cursor:pointer;margin-left:auto">&times;</button></div>'
+    +rowLine('発生日',r.d)
+    +rowLine('責任所在',r.process)
+    +rowLine('種別',r.type)
+    +rowLine('作業者',r.name||r.acct)
+    +rowLine('エリア',r.area)
+    +rowLine('商品',r.item)
+    +rowLine('数量',r.qty)
+    +rowLine('真因(定型)',r.causeType)
+    +rowLine('メモ',r.cause)
+    +rowLine('ID',r.id);
+  pop.style.display='block';
+  pop.querySelector('#defectPopX').onclick=(e)=>{ e.stopPropagation(); pop.style.display='none'; };
+  // 位置決め（表示後にサイズ確定）
+  const rect=tr.getBoundingClientRect();
+  const vw=window.innerWidth, vh=window.innerHeight;
+  const ph=pop.offsetHeight, pw=pop.offsetWidth;
+  let top;
+  if(rect.bottom+8+ph<=vh) top=rect.bottom+8;          // 行の下に収まる → 下
+  else if(rect.top-8-ph>=0) top=rect.top-8-ph;          // 上に収まる → 上
+  else top=Math.max(8, vh-ph-8);                        // どちらも無理 → 画面内
+  let left=Math.min(Math.max(12, rect.left), vw-pw-12);
+  pop.style.top=top+'px'; pop.style.left=left+'px';
 }
 
 function paneData(pane){
