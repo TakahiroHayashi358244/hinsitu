@@ -111,7 +111,7 @@ a.back{color:var(--accent);text-decoration:none;font-size:13px}
 <body>
 <div class="wrap">
   <h1>HFO1 品質・生産性 資料出力</h1>
-  <div class="sub">ダッシュボードと同じデータ（ブラウザ内 IndexedDB）を自動で読み込みます。項目を選んで PowerPoint を生成します。　<a class="back" href="./index.html">← ダッシュボード</a>　<a class="back" href="./excel.html">Excel出力へ</a>　<span style="color:#0f9d8f;font-weight:700">v3.6（グラフ詳細設定を追加）</span></div>
+  <div class="sub">ダッシュボードと同じデータ（ブラウザ内 IndexedDB）を自動で読み込みます。項目を選んで PowerPoint を生成します。　<a class="back" href="./index.html">← ダッシュボード</a>　<a class="back" href="./excel.html">Excel出力へ</a>　<span style="color:#0f9d8f;font-weight:700">v3.7（スライド4 プロセスミスレートをターゲット手入力＋GAP自動判定に対応。プレビュー画面にPowerPoint出力ボタンを追加）</span></div>
 
   <div class="card">
     <div class="chead">1. 対象データ</div>
@@ -127,6 +127,20 @@ a.back{color:var(--accent);text-decoration:none;font-size:13px}
       <div id="kpis" class="kpis"></div>
     </div>
   </div>
+
+  <details class="card" id="missCard" open>
+    <summary class="chead" style="cursor:pointer">スライド4：プロセスミスレート設定　<span style="font-size:12px;color:var(--mut);font-weight:400">（ターゲットは分子・分母を手入力。実績は分母を手入力〈固定〉、分子はデータの欠陥ユニット数を自動）</span></summary>
+    <div class="cbody">
+      <div id="missWrap" style="overflow:auto">
+        <div class="warn" style="margin:0">データ読込後に表示されます。</div>
+      </div>
+      <div style="font-size:12px;color:var(--mut);margin-top:8px">
+        ・ターゲット率＝ターゲット分子÷ターゲット分母。実績率＝実績ユニット（データ）÷実績分母（手入力）。<br>
+        ・GAP＝実績率−ターゲット率（＋は未達）。判定：実績率 ≤ ターゲット率で「達成」。<br>
+        ・実績分母は初期値としてデータの処理ユニット数を入れています。必要に応じて上書きしてください。
+      </div>
+    </div>
+  </details>
 
   <details class="card" id="itemsCard">
     <summary class="chead" style="cursor:pointer">2. 資料に含める項目　<span style="font-size:12px;color:var(--mut);font-weight:400">（出力は固定のICQA品質会議様式10枚。通常は変更不要）</span></summary>
@@ -168,7 +182,8 @@ a.back{color:var(--accent);text-decoration:none;font-size:13px}
     <span id="pvCount" class="hint"></span>
     <span style="flex:1"></span>
     <span class="hint">PDFにするには「PDFで保存」→ 送信先を「PDFに保存」</span>
-    <button class="pri" id="pvPrint">PDFで保存 / 印刷</button>
+    <button class="pri" id="pvPptx">PowerPoint出力</button>
+    <button id="pvPrint">PDFで保存 / 印刷</button>
     <button id="pvClose">閉じる</button>
   </div>
   <div id="pvPages"></div>
@@ -402,6 +417,7 @@ async function overlayFromLedgers(site,from,to){
     R.kpi.shelfDpmo=k.shortageDpmo;
     R.kpi.stowU=k.stowU; R.kpi.pickU=k.pickU; R.kpi.ufU=k.pickU;
     R.kpi.sipQ=k.stowQ; R.kpi.pmU=k.pickQ; R.kpi.mfU=k.shortageQ;
+    R.kpi.rcvU=k.rcvU; R.kpi.rcvQ=k.rcvQ;   // スライド4 プロセスミスレート用（Receive）
     // 欠陥内訳は台帳defects(編集フラグ反映)から（PowerPointのDefectサマリー用）
     const inR=d=>(!from||d>=from)&&(!to||d<=to);
     const df=defects.filter(r=>inR(r.d));
@@ -571,11 +587,101 @@ function renderSummary(){
   }
 }
 
+/* =========================================================
+   スライド4 プロセスミスレート（手入力設定）
+   ・ターゲット率＝ターゲット分子÷ターゲット分母（両方手入力）
+   ・実績率＝実績ユニット（データの欠陥数・自動）÷実績分母（手入力・固定）
+   ・GAP＝実績率−ターゲット率（＋は未達）／判定：実績率≤ターゲット率で達成
+   ========================================================= */
+const MISS = {
+  Receive: {tNum:'', tDen:'', aDen:''},
+  Stow:    {tNum:'', tDen:'', aDen:''},
+  Pick:    {tNum:'', tDen:'', aDen:''},
+};
+const MISS_ROWS = [
+  {key:'Receive', en:'Receive', jp:'レシーブ'},
+  {key:'Stow',    en:'Stow',    jp:'ストウ'},
+  {key:'Pick',    en:'Pick',    jp:'ピック'},
+];
+// 実績ユニット（分子＝データの欠陥ユニット数）と参考の処理ユニット数
+function missData(key){
+  const k=R?R.kpi:{};
+  if(key==='Receive') return {qty:(k.rcvQ!=null?k.rcvQ:null), unit:(k.rcvU!=null?k.rcvU:null)};
+  if(key==='Stow')    return {qty:(k.sipQ!=null?k.sipQ:(k.stowQ!=null?k.stowQ:null)), unit:(k.stowU!=null?k.stowU:null)};
+  if(key==='Pick')    return {qty:(k.pmU!=null?k.pmU:(k.pickQ!=null?k.pickQ:null)),  unit:(k.pickU!=null?k.pickU:null)};
+  return {qty:null, unit:null};
+}
+function mNum(v){ if(v===''||v==null) return null; const n=Number(v); return isFinite(n)?n:null; }
+// 1行分の計算結果
+function computeMissRow(row){
+  const st=MISS[row.key]; const d=missData(row.key);
+  const aNum=d.qty;                 // 実績分子（自動）
+  const aDen=mNum(st.aDen);         // 実績分母（手入力・固定）
+  const tNum=mNum(st.tNum), tDen=mNum(st.tDen);
+  const aRate=(aNum!=null&&aDen&&aDen>0)?aNum/aDen:null;   // 割合(0-1)
+  const tRate=(tNum!=null&&tDen&&tDen>0)?tNum/tDen:null;
+  const gap=(aRate!=null&&tRate!=null)?(aRate-tRate):null; // ＋=未達
+  const pass=(aRate!=null&&tRate!=null)?(aRate<=tRate):null;
+  return {...row, aNum, aDen, tNum, tDen, aRate, tRate, gap, pass, unit:d.unit};
+}
+function computeMiss(){ return MISS_ROWS.map(computeMissRow); }
+const pctR=v=>v==null?'－.－％':((v*100).toFixed(3)+'％');
+const gapR=v=>v==null?'＋/－ _._％':((v>=0?'＋':'−')+Math.abs(v*100).toFixed(3)+'％');
+
+function renderMiss(){
+  const host=$('#missWrap'); if(!host) return;
+  if(!R){ host.innerHTML='<div class="warn" style="margin:0">データ読込後に表示されます。</div>'; return; }
+  // 実績分母が空なら処理ユニット数を初期値として投入（上書き可）
+  MISS_ROWS.forEach(r=>{ if(MISS[r.key].aDen===''){ const u=missData(r.key).unit; if(u!=null) MISS[r.key].aDen=String(u); } });
+  const inCell=(val,ph,on)=>'<input type="number" min="0" step="any" data-k="'+on.k+'" data-f="'+on.f+'" value="'+(val===''?'':val)+'" placeholder="'+(ph||'')+'" style="width:96px;padding:5px 7px;border:1px solid #cfd8e6;border-radius:6px;font-size:12px">';
+  let h='<table style="border-collapse:collapse;font-size:12.5px;min-width:820px">';
+  h+='<thead><tr style="background:#1F4E79;color:#fff">'
+   +['工程','ターゲット分子','ターゲット分母','ターゲット率','実績ユニット<br><span style="font-weight:400;font-size:10px">(データ・分子)</span>','実績分母<br><span style="font-weight:400;font-size:10px">(手入力・固定)</span>','実績率','GAP','判定']
+     .map(t=>'<th style="padding:7px 9px;border:1px solid #2b4d70;text-align:center;font-weight:700">'+t+'</th>').join('')
+   +'</tr></thead><tbody>';
+  MISS_ROWS.forEach(r=>{
+    const d=missData(r.key);
+    const auto = d.qty==null?'<span style="color:#C0392B">データなし</span>':fmtI(d.qty);
+    h+='<tr data-row="'+r.key+'">'
+     +'<td style="padding:6px 9px;border:1px solid #e2e7ee;font-weight:700">'+r.en+'<span style="color:#6B7A90;font-weight:400">（'+r.jp+'）</span></td>'
+     +'<td style="padding:6px 9px;border:1px solid #e2e7ee;text-align:center">'+inCell(MISS[r.key].tNum,'例:50',{k:r.key,f:'tNum'})+'</td>'
+     +'<td style="padding:6px 9px;border:1px solid #e2e7ee;text-align:center">'+inCell(MISS[r.key].tDen,'例:100000',{k:r.key,f:'tDen'})+'</td>'
+     +'<td class="c-trate" style="padding:6px 9px;border:1px solid #e2e7ee;text-align:center;font-weight:700"></td>'
+     +'<td style="padding:6px 9px;border:1px solid #e2e7ee;text-align:center">'+auto+'</td>'
+     +'<td style="padding:6px 9px;border:1px solid #e2e7ee;text-align:center">'+inCell(MISS[r.key].aDen,'例:100000',{k:r.key,f:'aDen'})+'</td>'
+     +'<td class="c-arate" style="padding:6px 9px;border:1px solid #e2e7ee;text-align:center;font-weight:700"></td>'
+     +'<td class="c-gap" style="padding:6px 9px;border:1px solid #e2e7ee;text-align:center;font-weight:700"></td>'
+     +'<td class="c-pass" style="padding:6px 9px;border:1px solid #e2e7ee;text-align:center;font-weight:800"></td>'
+     +'</tr>';
+  });
+  h+='</tbody></table>';
+  host.innerHTML=h;
+  host.querySelectorAll('input[data-k]').forEach(inp=>{
+    inp.oninput=()=>{ MISS[inp.dataset.k][inp.dataset.f]=inp.value; updateMissDerived(); };
+  });
+  updateMissDerived();
+}
+// 手入力に応じて派生セル（ターゲット率/実績率/GAP/判定）だけ更新（フォーカスを保持）
+function updateMissDerived(){
+  const host=$('#missWrap'); if(!host) return;
+  computeMiss().forEach(r=>{
+    const tr=host.querySelector('tr[data-row="'+r.key+'"]'); if(!tr) return;
+    const passTxt = r.pass==null?'—':(r.pass?'達成':'未達');
+    const passCol = r.pass==null?'#6B7A90':(r.pass?'#0F9D8F':'#C0392B');
+    const gapCol  = r.gap==null?'#6B7A90':(r.gap<=0?'#0F9D8F':'#C0392B');
+    const set=(cls,txt,col)=>{ const c=tr.querySelector('.'+cls); if(c){ c.textContent=txt; if(col)c.style.color=col; } };
+    set('c-trate',pctR(r.tRate));
+    set('c-arate',pctR(r.aRate));
+    set('c-gap',gapR(r.gap),gapCol);
+    set('c-pass',passTxt,passCol);
+  });
+}
+
 async function recompute(){
   const site=$('#site').value, from=$('#from').value, to=$('#to').value;
   R=compute(site,from,to);
   await overlayFromLedgers(site,from,to);   // 取込ツール本体と同じ台帳値(欠陥管理=正)で上書き
-  renderSummary(); renderItems();
+  renderSummary(); renderItems(); renderMiss();
 }
 
 
@@ -774,18 +880,25 @@ function buildPreview(){
      +'<div style="position:absolute;left:40px;top:452px;font-size:11px;color:'+MUT+'"><span style="color:#2F8F4E">●</span> 完了　<span style="color:#C47F17">●</span> 進行中　<span style="color:#C0392B">●</span> 遅延　<span style="color:#9AA6B4">●</span> 未着手</div>'
      +foot(3));}
 
-  /* 4 プロセスミスレート（自動） */
-  {const cards=[['Receive','レシーブ',null],['Stow','ストウ',stowR],['Pick','ピック',pickR]];let c='';
-   cards.forEach((cd,i)=>{const x=40+i*315;
-     c+='<div style="position:absolute;left:'+x+'px;top:105px;width:295px;height:275px;background:'+CARD+';border:1px solid #E6E9ED;border-radius:8px"></div>';
-     c+='<div style="position:absolute;left:'+x+'px;top:120px;width:295px;text-align:center;font-size:17px;font-weight:700;color:'+NAVY+'">'+cd[0]+'</div>';
-     c+='<div style="position:absolute;left:'+x+'px;top:150px;width:295px;text-align:center;font-size:11px;color:'+MUT+'">'+cd[1]+'</div>';
-     c+='<div style="position:absolute;left:'+x+'px;top:190px;width:295px;text-align:center;font-size:30px;font-weight:800;color:'+INK+'">'+pctS(cd[2])+'</div>';
-     c+='<div style="position:absolute;left:'+x+'px;top:258px;width:295px;text-align:center;font-size:11px;color:'+MUT+'">Target: __.__%</div>';
-     c+='<div style="position:absolute;left:'+(x+50)+'px;top:295px;width:195px;height:32px;background:#8A97AD;border-radius:5px;color:#fff;font-weight:700;font-size:10px;display:flex;align-items:center;justify-content:center">Gap: +/- _.__%</div>';
-     c+='<div style="position:absolute;left:'+x+'px;top:340px;width:295px;text-align:center;font-size:11px;color:'+MUT+'">達成  /  未達</div>';});
+  /* 4 プロセスミスレート（ターゲット手入力＋実績=欠陥ユニット/手入力分母） */
+  {const GREEN='#2FA37A', RED='#C0392B';
+   const fp=v=>v==null?'－.－％':((v*100).toFixed(3)+'％');
+   const fg=v=>v==null?'GAP：＋/－ _._％':('GAP：'+(v>=0?'＋':'−')+Math.abs(v*100).toFixed(3)+'％');
+   const rows=computeMiss();let c='';
+   rows.forEach((r,i)=>{const x=40+i*315;
+     const pill=r.pass==null?'#8A97AD':(r.pass?GREEN:RED);
+     const jTxt=r.pass==null?'達成  /  未達':(r.pass?'達成':'未達');
+     const jCol=r.pass==null?MUT:(r.pass?GREEN:RED);
+     c+='<div style="position:absolute;left:'+x+'px;top:105px;width:295px;height:295px;background:'+CARD+';border:1px solid #E6E9ED;border-radius:8px"></div>';
+     c+='<div style="position:absolute;left:'+x+'px;top:118px;width:295px;text-align:center;font-size:17px;font-weight:700;color:'+NAVY+'">'+r.en+'</div>';
+     c+='<div style="position:absolute;left:'+x+'px;top:146px;width:295px;text-align:center;font-size:11px;color:'+MUT+'">'+r.jp+'</div>';
+     c+='<div style="position:absolute;left:'+x+'px;top:174px;width:295px;text-align:center;font-size:26px;font-weight:800;color:'+INK+'">'+fp(r.aRate)+'</div>';
+     c+='<div style="position:absolute;left:'+x+'px;top:216px;width:295px;text-align:center;font-size:10px;color:'+MUT+'">実績 '+(r.aNum==null?'―':fmtI(r.aNum))+' / '+(r.aDen==null?'―':fmtI(r.aDen))+'</div>';
+     c+='<div style="position:absolute;left:'+x+'px;top:238px;width:295px;text-align:center;font-size:10.5px;color:'+MUT+'">Target '+fp(r.tRate)+'　('+(r.tNum==null?'―':fmtI(r.tNum))+' / '+(r.tDen==null?'―':fmtI(r.tDen))+')</div>';
+     c+='<div style="position:absolute;left:'+(x+42)+'px;top:266px;width:211px;height:34px;background:'+pill+';border-radius:5px;color:#fff;font-weight:700;font-size:11px;display:flex;align-items:center;justify-content:center">'+fg(r.gap)+'</div>';
+     c+='<div style="position:absolute;left:'+x+'px;top:312px;width:295px;text-align:center;font-size:14px;font-weight:800;color:'+jCol+'">'+jTxt+'</div>';});
    S(top+sect('02','プロセスミスレート','Process Miss Rate')+c
-     +'<div style="position:absolute;left:40px;top:405px;font-size:10.5px;font-style:italic;color:'+MUT+'">※ Stow/Pickの実測ミス率は取込ツールと同一値（自動）。Target・Gap・判定は会議で記入。</div>'+foot(4));}
+     +'<div style="position:absolute;left:40px;top:420px;font-size:10px;font-style:italic;color:'+MUT+'">※ 実績率＝欠陥ユニット数（データ）÷実績分母（手入力）。ターゲット率＝分子÷分母（手入力）。GAP＝実績−ターゲット（＋は未達）／判定：実績率≤ターゲットで達成。</div>'+foot(4));}
 
   /* 5 5W1H＋表 */
   {const w5=[['Why','なぜ発生？',OR],['What','何をする',NAVY],['Who','誰が',NAVY],['When','いつまで',NAVY],['How','どのように',NAVY]];let b='';
@@ -938,25 +1051,34 @@ async function generate(){
    footer(s,3);
   }
 
-  /* ===== Slide 4: 02 プロセスミスレート（自動入力: Stow/Pick率） ===== */
+  /* ===== Slide 4: 02 プロセスミスレート（ターゲット手入力＋実績=欠陥ユニット/手入力分母） ===== */
   {const s=pptx.addSlide(); topbar(s); section(s,'02','プロセスミスレート','Process Miss Rate');
-   const K=R.kpi;
-   // 取込ツールの表示DPMOと一致させる（率% = DPMO/10000）。Pick = 全Pick(Pick作業ミスDPMO)。
-   const cards=[['Receive','レシーブ',null],
-     ['Stow','ストウ', K.stowDpmo!=null?K.stowDpmo/10000:null],
-     ['Pick','ピック', K.workDpmo!=null?K.workDpmo/10000:null]];
-   cards.forEach((c,i)=>{const x=0.4+i*3.15,w=2.95,y=1.05,h=2.75;
+   const GREEN='2FA37A', RED='C0392B';
+   const fmtPct=v=>v==null?'－.－％':((v*100).toFixed(3)+'％');
+   const fmtGap=v=>v==null?'GAP：＋/－ _._％':('GAP：'+(v>=0?'＋':'−')+(Math.abs(v*100).toFixed(3))+'％');
+   const rows=computeMiss();
+   rows.forEach((r,i)=>{const x=0.4+i*3.15,w=2.95,y=1.05,h=2.95;
      s.addShape(RR,{x,y,w,h,rectRadius:0.06,fill:{color:CARD},line:{color:'E6E9ED'}});
-     s.addText(c[0],{x,y:y+0.15,w,h:0.35,align:'center',bold:true,color:NAVY,fontSize:17,fontFace:F});
-     s.addText(c[1],{x,y:y+0.52,w,h:0.28,align:'center',color:MUT,fontSize:11,fontFace:F});
-     s.addText(pctS(c[2]),{x,y:y+0.95,w,h:0.6,align:'center',bold:true,color:INK,fontSize:30,fontFace:F});
-     s.addText('Target: __.__%',{x,y:y+1.62,w,h:0.28,align:'center',color:MUT,fontSize:11,fontFace:F});
-     s.addShape(RR,{x:x+0.5,y:y+1.95,w:w-1.0,h:0.36,rectRadius:0.05,fill:{color:'8A97AD'}});
-     s.addText('Gap: +/- _.__%',{x:x+0.5,y:y+1.95,w:w-1.0,h:0.36,align:'center',valign:'middle',bold:true,color:WHITE,fontSize:10,fontFace:F});
-     s.addText('達成  /  未達',{x,y:y+2.4,w,h:0.28,align:'center',color:MUT,fontSize:11,fontFace:F});
+     s.addText(r.en,{x,y:y+0.12,w,h:0.32,align:'center',bold:true,color:NAVY,fontSize:17,fontFace:F});
+     s.addText(r.jp,{x,y:y+0.46,w,h:0.24,align:'center',color:MUT,fontSize:11,fontFace:F});
+     // 実績率（大）
+     s.addText(fmtPct(r.aRate),{x,y:y+0.74,w,h:0.5,align:'center',bold:true,color:INK,fontSize:26,fontFace:F});
+     s.addText('実績 '+(r.aNum==null?'―':fmtI(r.aNum))+' / '+(r.aDen==null?'―':fmtI(r.aDen)),
+       {x,y:y+1.22,w,h:0.24,align:'center',color:MUT,fontSize:9.5,fontFace:F});
+     // ターゲット
+     s.addText('Target '+fmtPct(r.tRate)+'　('+(r.tNum==null?'―':fmtI(r.tNum))+' / '+(r.tDen==null?'―':fmtI(r.tDen))+')',
+       {x,y:y+1.5,w,h:0.24,align:'center',color:MUT,fontSize:10,fontFace:F});
+     // GAPピル（達成=緑 / 未達=赤 / 未入力=グレー）
+     const pillCol=r.pass==null?'8A97AD':(r.pass?GREEN:RED);
+     s.addShape(RR,{x:x+0.42,y:y+1.82,w:w-0.84,h:0.36,rectRadius:0.05,fill:{color:pillCol}});
+     s.addText(fmtGap(r.gap),{x:x+0.42,y:y+1.82,w:w-0.84,h:0.36,align:'center',valign:'middle',bold:true,color:WHITE,fontSize:10,fontFace:F});
+     // 判定
+     const jTxt=r.pass==null?'達成  /  未達':(r.pass?'達成':'未達');
+     const jCol=r.pass==null?MUT:(r.pass?GREEN:RED);
+     s.addText(jTxt,{x,y:y+2.28,w,h:0.3,align:'center',bold:r.pass!=null,color:jCol,fontSize:13,fontFace:F});
    });
-   s.addText('※ ターゲット未達プロセスのみ次スライドで要因分析。Stow/Pickの実測ミス率は自動算出、Target・Gap・判定は会議で記入。',
-     {x:0.4,y:4.05,w:9.2,h:0.3,fontSize:10.5,italic:true,color:MUT,fontFace:F});
+   s.addText('※ 実績率＝欠陥ユニット数（データ）÷実績分母（手入力・固定）。ターゲット率＝ターゲット分子÷分母（手入力）。GAP＝実績−ターゲット（＋は未達）／判定：実績率≤ターゲットで達成。未達プロセスのみ次スライドで要因分析。',
+     {x:0.4,y:4.2,w:9.2,h:0.5,fontSize:9.5,italic:true,color:MUT,fontFace:F});
    footer(s,4);
   }
 
@@ -1143,6 +1265,11 @@ $('#gen').onclick=()=>generate().catch(e=>log('✕ 生成に失敗しました�
 $('#preview').onclick=()=>{ try{ buildPreview(); }catch(e){ log('✕ プレビュー失敗: '+e.message); } };
 $('#pvClose').onclick=closePreview;
 $('#pvPrint').onclick=()=>window.print();
+$('#pvPptx').onclick=()=>{
+  const b=$('#pvPptx'); const old=b.textContent; b.disabled=true; b.textContent='生成中…';
+  generate().catch(e=>{ log('✕ 生成に失敗しました：'+e.message); alert('PowerPoint生成に失敗しました：'+e.message); })
+    .finally(()=>{ b.disabled=false; b.textContent=old; });
+};
 document.addEventListener('keydown',e=>{ if(e.key==='Escape') closePreview(); });
 </script>
 </body>
