@@ -241,7 +241,7 @@ tr.out td{color:var(--mut);font-style:italic}
   <div class="top">
     <div>
       <div class="title" id="mainTitle">品質×生産性 統合ダッシュボード</div>
-      <div class="sub">DPMO（品質）と UPH（生産性）を1つのツールで。CSV / ZIP をドラッグ&ドロップ、ヘッダーで自動判別。<b>v162</b>：個人別 週次推移カードを品質×生産性タブに追加（作業者を選ぶと週別Stow DPMO〈台帳〉と週別総合UPH〈FR〉を日曜起点で表示）。＋段階5b フロア別カバレッジを台帳化（floor台帳新設。反映には「品質台帳を更新」で上げ直しが必要）。＋生産性「週別 UPH」／グラフ棒上に値表示。＋グラフの棒の上にDPMO/UPH値を表示（週別・項目別・個人別）。＋「週別 DPMO」棒グラフ（軸切替。指標連動、棒クリックで週明細）。＋ASINを台帳に追加し欠陥管理一覧の商品名の左横・ポップアップ・品質ドリルダウンに表示／上部バーの期間指定を非表示で1行整理／取込時に品質台帳も自動更新＋「品質台帳を更新」ボタン。＋欠陥管理タブ改良（確定ボタンを発生日の右横／行クリックで詳細ポップアップ／パスコードその場入力・自動再試行）／起動高速化（5c）／品質タブ台帳ベース（5a）／DPMO定義を欠陥管理に統一。</div>
+      <div class="sub">DPMO（品質）と UPH（生産性）を1つのツールで。CSV / ZIP をドラッグ&ドロップ、ヘッダーで自動判別。<b>v164</b>：個人別UPHを台帳化（fr台帳を新設。「個人別 週次推移」の週別総合UPHを、生FRが無い閲覧端末でもfr台帳から同一表示。反映には「品質台帳を更新」で上げ直しが必要。バックエンドはfr種別の追加が必要）。＋生産性「週別 UPH」に「全工程を1枚(A4縦)で印刷」ボタンを追加（表示中の全工程の週別UPHをA4縦1枚に並べて印刷）。＋個人別 週次推移カードを品質×生産性タブに追加（作業者を選ぶと週別Stow DPMO〈台帳〉と週別総合UPH〈FR〉を日曜起点で表示）。＋段階5b フロア別カバレッジを台帳化（floor台帳新設。反映には「品質台帳を更新」で上げ直しが必要）。＋生産性「週別 UPH」／グラフ棒上に値表示。＋グラフの棒の上にDPMO/UPH値を表示（週別・項目別・個人別）。＋「週別 DPMO」棒グラフ（軸切替。指標連動、棒クリックで週明細）。＋ASINを台帳に追加し欠陥管理一覧の商品名の左横・ポップアップ・品質ドリルダウンに表示／上部バーの期間指定を非表示で1行整理／取込時に品質台帳も自動更新＋「品質台帳を更新」ボタン。＋欠陥管理タブ改良（確定ボタンを発生日の右横／行クリックで詳細ポップアップ／パスコードその場入力・自動再試行）／起動高速化（5c）／品質タブ台帳ベース（5a）／DPMO定義を欠陥管理に統一。</div>
     </div>
     <div style="display:flex;flex-direction:row;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end">
       <div id="siteChip" style="font-size:13px;font-weight:700;padding:6px 14px;border-radius:999px;background:#1f3a5f;color:#fff;white-space:nowrap"></div>
@@ -1644,12 +1644,29 @@ async function buildFloorDaily(site){
   return Object.values(byKey);
 }
 
-// 5台帳をまとめて生成
+// 台帳F(fr): 個人別 日次UPH（分子＝処理量／工数）— FR(functionRollup)の社員ID×日×工程から。
+//   閲覧端末でも「個人別 週次推移」のUPHを再現できるよう、FR明細を台帳化する。
+function buildFRDaily(site){
+  const byKey={};
+  (S.fr||[]).forEach(r=>{
+    if(!r._date || r.scope!=='day') return;
+    const empId=String(r.empId||'').trim(); if(!empId) return;
+    const proc=r.process||'Unknown';
+    const k=r._date+'|'+empId+'|'+proc;
+    const o=byKey[k]||(byKey[k]={d:r._date, site, empId, name:r.name||'', proc, units:0, hours:0});
+    o.units+=num(r.units); o.hours+=num(r.hours);
+    if(!o.name && r.name) o.name=r.name;
+  });
+  return Object.values(byKey);
+}
+
+// 6台帳をまとめて生成
 async function buildAllLedgers(site){
   const [volume,worker,process,defects,floor]=await Promise.all([
     buildVolumeDaily(site), buildWorkerVolumeDaily(site), buildProcessDaily(site), buildDefects(site), buildFloorDaily(site)
   ]);
-  return {volume,worker,process,defects,floor};
+  const fr=buildFRDaily(site);
+  return {volume,worker,process,defects,floor,fr};
 }
 
 // 台帳をCloudflareへ送信
@@ -1688,8 +1705,9 @@ async function cfUploadLedgers(logTarget, throwOnErr){
     const rp=await cfPostLedger(site,'process',L.process);
     const rw=await cfPostLedger(site,'worker',L.worker);
     const rf2=await cfPostLedger(site,'floor',L.floor);
+    const rfr=await cfPostLedger(site,'fr',L.fr);
     const rd=await cfPostDefects(site,L.defects);
-    say('📒 台帳送信 '+site+'：処理量'+L.volume.length+'日 / 工程'+L.process.length+'行 / 作業者'+L.worker.length+'行 / フロア'+L.floor.length+'行 / 欠陥'+L.defects.length+'件'
+    say('📒 台帳送信 '+site+'：処理量'+L.volume.length+'日 / 工程'+L.process.length+'行 / 作業者'+L.worker.length+'行 / フロア'+L.floor.length+'行 / 個人UPH'+L.fr.length+'行 / 欠陥'+L.defects.length+'件'
       +(rd.keptEdited?('（うち確定済み'+rd.keptEdited+'件は保持）'):''),'ok');
   }catch(e){
     say('📒 台帳送信スキップ：'+e.message,'wn');
@@ -1776,8 +1794,8 @@ async function fetchAllLedgers(site){
     .then(r=>r.json()).then(j=>j&&j.ok?(j.rows||[]):[]).catch(()=>[]);
   const gd=()=>fetch(base+'/ledger/defects?site='+encodeURIComponent(site)+'&t='+Date.now(),{cache:'no-store'})
     .then(r=>r.json()).then(j=>j&&j.ok?(j.rows||[]):[]).catch(()=>[]);
-  const [volume,worker,process,defects,floor]=await Promise.all([g('volume'),g('worker'),g('process'),gd(),g('floor')]);
-  return {volume,worker,process,defects,floor};
+  const [volume,worker,process,defects,floor,fr]=await Promise.all([g('volume'),g('worker'),g('process'),gd(),g('floor'),g('fr')]);
+  return {volume,worker,process,defects,floor,fr};
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -1901,6 +1919,7 @@ function buildQReportFromLedgers(L, from, to, site){
     kpi, daily, gaps, opDays,
     workers:wIn, workersOut:wOut, workerDaily:wv,
     empl2acct, acct2disp, dispName,
+    frLedger:(L.fr||[]).filter(r=>inRange(r.d)),   // [段階5d] 個人別 日次UPH台帳（閲覧端末の週次推移UPH用）
     floorRows, pmByType:[],
     raw:{sipsddr:rawSip, pickmiss:rawPm, missingfloor:rawMf},
     _ledgerApplied:true, _fromLedger:true
@@ -2607,6 +2626,46 @@ function sundayOf(dateStr){
   return dt.getFullYear()+'-'+p(dt.getMonth()+1)+'-'+p(dt.getDate());
 }
 /* 汎用: 日別配列から週次DPMO(日曜起点)。numFn=分子, denFn=分母 のアクセサ */
+/* [生産性] 週別UPHを全工程ぶん並べてA4縦1枚に印刷。map/dateArr/SRC は drawP の週別ブランチと同一データ。 */
+function printWeeklyAll(procs, map, dateArr, SRC){
+  const p2=n=>String(n).padStart(2,'0');
+  const rl=sun=>{const e=new Date(sun);e.setDate(e.getDate()+6);return sun.slice(5)+'〜'+p2(e.getMonth()+1)+'-'+p2(e.getDate());};
+  const cells=[];
+  procs.forEach(cp=>{
+    const byWeek={};
+    dateArr.forEach(dt=>{ const m=map[dt+'||'+cp+'||'+SRC]; const sun=sundayOf(dt);
+      if(!byWeek[sun]) byWeek[sun]={vol:0,hrs:0,wk:weekNumberOf(dt),sunday:sun};
+      if(m){ byWeek[sun].vol+=m.vol; byWeek[sun].hrs+=m.hrs; } });
+    const weeks=Object.values(byWeek).sort((a,b)=>a.sunday<b.sunday?-1:1);
+    if(!weeks.length) return;
+    const labels=weeks.map(w=>'WK'+w.wk);
+    const series=[{name:cp,color:procColor(cp),data:weeks.map(w=>w.hrs?w.vol/w.hrs:null)}];
+    const {svg}=barChart(labels,series,'UPH',null,null,{showValues:true,fmt});
+    const tv=weeks.reduce((s,w)=>s+w.vol,0), th=weeks.reduce((s,w)=>s+w.hrs,0);
+    cells.push('<div class="cell"><div class="ph"><span class="dot" style="background:'+procColor(cp)+'"></span>'+cp
+      +' <span class="cum">累計UPH '+(th?fmt(tv/th):'–')+' u/h</span></div>'+svg.outerHTML+'</div>');
+  });
+  if(!cells.length){ toast('印刷できる週別データがありません'); return; }
+  const win=window.open('','_blank');
+  if(!win){ toast('ポップアップを許可してください（印刷ウィンドウ）'); return; }
+  win.document.write('<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8"><title>生産性 週別UPH（全工程）</title><style>'
+    +'@page{size:A4 portrait;margin:8mm}*{box-sizing:border-box}'
+    +'body{font-family:-apple-system,"Hiragino Kaku Gothic ProN","Noto Sans JP",sans-serif;margin:0;color:#1f2d3d}'
+    +'h1{font-size:16px;margin:0 0 2px}.sub{font-size:10.5px;color:#6b7a90;margin-bottom:8px}'
+    +'.grid{display:grid;grid-template-columns:1fr 1fr;gap:7px}'
+    +'.cell{border:1px solid #e3e8ef;border-radius:6px;padding:6px 8px;break-inside:avoid;page-break-inside:avoid}'
+    +'.ph{font-size:12px;font-weight:700;color:#1f4e79;margin-bottom:2px}'
+    +'.cum{font-size:10px;font-weight:400;color:#6b7a90;margin-left:4px}'
+    +'.dot{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:5px;vertical-align:-1px}'
+    +'.cell svg{width:100%;height:auto}'
+    +'</style></head><body><h1>生産性 週別UPH（全工程）</h1>'
+    +'<div class="sub">データソース: '+SRC+'　'+cells.length+'工程　日曜起点（品質の週区切りと同じ）　出力日: '+new Date().toLocaleDateString('ja-JP')+'</div>'
+    +'<div class="grid">'+cells.join('')+'</div>'
+    +'<scr'+'ipt>window.onload=function(){setTimeout(function(){window.focus();window.print();},400);}<\/scr'+'ipt>'
+    +'</body></html>');
+  win.document.close();
+}
+
 function weeklyDpmoBy(daily, numFn, denFn, requireSunday){
   if(requireSunday===undefined) requireSunday=true;   // 折れ線オーバーレイは従来どおり日曜がある週のみ。週別棒グラフは全週(false)。
   const byWeek={}; const dateSet=new Set(daily.map(d=>d.date));
@@ -3403,12 +3462,20 @@ function personWeeklyCard(pane){
       const wd=el('div','chartwrap'); wd.appendChild(svg); host.appendChild(wd); host.appendChild(legend);
       host.appendChild(el('div','note',wq.map(w=>'WK'+w.wk+' '+rl(w.sunday)+'='+fmtI(w.dpmo)).join('　/　')));
     } else { host.appendChild(el('div','note','この作業者のStow欠陥/処理データが週次にありません。')); }
-    // 生産性: 週別 総合UPH（FR）
-    const frRows=frDaily().filter(r=>String(E2A[String(r.empId).trim()]||'').toLowerCase()===acct.toLowerCase());
-    if(frRows.length){
-      const byW={}; frRows.forEach(r=>{ const sun=sundayOf(r._date); if(!byW[sun]) byW[sun]={u:0,h:0,wk:weekNumberOf(r._date),sunday:sun}; byW[sun].u+=num(r.units); byW[sun].h+=num(r.hours); });
+    // 生産性: 週別 総合UPH（FR）。取込端末は生FRを、閲覧端末は fr 台帳を使う（同一表示）。
+    const acctLC=acct.toLowerCase();
+    let frSrc=frDaily().filter(r=>String(E2A[String(r.empId).trim()]||'').toLowerCase()===acctLC)
+                       .map(r=>({date:r._date, units:num(r.units), hours:num(r.hours)}));
+    let srcNote='FR';
+    if(!frSrc.length && QReport.frLedger && QReport.frLedger.length){
+      frSrc=QReport.frLedger.filter(r=>String(E2A[String(r.empId).trim()]||'').toLowerCase()===acctLC)
+                            .map(r=>({date:r.d, units:num(r.units), hours:num(r.hours)}));
+      srcNote='FR台帳';
+    }
+    if(frSrc.length){
+      const byW={}; frSrc.forEach(r=>{ if(!r.date) return; const sun=sundayOf(r.date); if(!byW[sun]) byW[sun]={u:0,h:0,wk:weekNumberOf(r.date),sunday:sun}; byW[sun].u+=r.units; byW[sun].h+=r.hours; });
       const wks=Object.values(byW).sort((a,b)=>a.sunday<b.sunday?-1:1);
-      host.appendChild(el('div','note','週別 総合UPH（'+acct+'・FR全工程合算）'));
+      host.appendChild(el('div','note','週別 総合UPH（'+acct+'・'+srcNote+'全工程合算）'));
       const labels=wks.map(w=>'WK'+w.wk); const series=[{name:'週次UPH',color:'#0f9d8f',data:wks.map(w=>w.h?w.u/w.h:null)}];
       const {svg,legend}=barChart(labels,series,'UPH',null,null,{showValues:true,fmt});
       const wd=el('div','chartwrap'); wd.appendChild(svg); host.appendChild(wd); host.appendChild(legend);
@@ -3797,6 +3864,10 @@ function paneProd(pane){
         nt.innerHTML='工程・データソースで表示を切替。棒（週）クリックでその週のUPHを上段に表示。日曜起点（品質の週区切りと同じ）。<br>'
           +weeks.map(w=>'<b>WK'+w.wk+'</b> '+rangeLabel(w.sunday)+' = '+(w.hrs?fmt(w.vol/w.hrs):'–')).join('　/　');
         cb.appendChild(nt);
+        const pbtn=el('button','btn gho','全工程を1枚(A4縦)で印刷'); pbtn.style.cssText='margin-top:8px';
+        pbtn.title='表示中の全工程の週別UPHを、A4縦1枚に並べて印刷（データソース：'+SRC+'）';
+        pbtn.onclick=()=>printWeeklyAll(present, map, dateArr, SRC);
+        cb.appendChild(pbtn);
       } else {
         // 選んだ1工程だけの日次推移（棒クリックでその日の値を表示）
         const labels=dateArr.map(d=>d.slice(5));   // MM-DD（年は範囲表示で分かるため省略し重なりを防ぐ）
