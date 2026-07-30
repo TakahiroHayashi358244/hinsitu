@@ -241,7 +241,7 @@ tr.out td{color:var(--mut);font-style:italic}
   <div class="top">
     <div>
       <div class="title" id="mainTitle">品質×生産性 統合ダッシュボード</div>
-      <div class="sub">DPMO（品質）と UPH（生産性）を1つのツールで。CSV / ZIP をドラッグ&ドロップ、ヘッダーで自動判別。<b>v166</b>：ダッシュボード上部に「現在のデータを最新化（全部送信）」ボタンを追加＝担当端末が管理者モードに入らず、生産性(明細/サマリ)＋品質台帳をまとめて手動アップロード可能に（従来の全部送信ボタンは管理者限定のクラウド設定内のみだった）。「品質台帳を更新」は「品質台帳のみ更新」に整理。＋クラウド設定の「今すぐアップロード」も全部送信化。生産性の明細/サマリ＋品質台帳を1クリック・1パスコードでまとめて送信（従来は明細/サマリのみ送信で品質台帳は別ボタンが必要だった）。＋閲覧端末の自動更新を追加。開いたままでも他PCのアップロードを約60秒ごと（＋ブラウザのタブに戻った時）に検知し、生産性(FR/PPR)・品質を自動で最新化（タブ右上に「自動更新: ON」バッジと「今すぐ最新に」ボタン）。取込/再計算中と管理端末では自動置換しません。＋取込→アップロードを見直し。①事業所パスコードを「重い集計の前」に一度だけ確認（従来は集計後にようやく聞かれ数秒の遅延）。②明細/サマリと品質台帳を1つのパスコード関門でまとめて送信し、明細/サマリも403時に再試行（従来は明細/サマリが無言で403スキップされ、別PCで最新の生産性/明細が反映されないことがあった）。③サマリ送信と明細(生産性FR/PPRを含む)送信を独立実行に変更（従来はサマリ集計/送信でつまずくと明細＝生産性の送信ごと止まり、別PCで生産性だけ更新されない原因になっていた）。別PC側は再読込／事業所の切替で最新反映（品質タブは開くたび台帳を再取得＝常に最新）。＋個人別UPHを台帳化（fr台帳を新設。「個人別 週次推移」の週別総合UPHを、生FRが無い閲覧端末でもfr台帳から同一表示。反映には「品質台帳を更新」で上げ直しが必要。バックエンドはfr種別の追加が必要）。＋生産性「週別 UPH」に「全工程を1枚(A4縦)で印刷」ボタンを追加（表示中の全工程の週別UPHをA4縦1枚に並べて印刷）。＋個人別 週次推移カードを品質×生産性タブに追加（作業者を選ぶと週別Stow DPMO〈台帳〉と週別総合UPH〈FR〉を日曜起点で表示）。＋段階5b フロア別カバレッジを台帳化（floor台帳新設。反映には「品質台帳を更新」で上げ直しが必要）。＋生産性「週別 UPH」／グラフ棒上に値表示。＋グラフの棒の上にDPMO/UPH値を表示（週別・項目別・個人別）。＋「週別 DPMO」棒グラフ（軸切替。指標連動、棒クリックで週明細）。＋ASINを台帳に追加し欠陥管理一覧の商品名の左横・ポップアップ・品質ドリルダウンに表示／上部バーの期間指定を非表示で1行整理／取込時に品質台帳も自動更新＋「品質台帳を更新」ボタン。＋欠陥管理タブ改良（確定ボタンを発生日の右横／行クリックで詳細ポップアップ／パスコードその場入力・自動再試行）／起動高速化（5c）／品質タブ台帳ベース（5a）／DPMO定義を欠陥管理に統一。</div>
+      <div class="sub">DPMO（品質）と UPH（生産性）を1つのツールで。CSV / ZIP をドラッグ&ドロップ、ヘッダーで自動判別。<details style="margin-top:4px"><summary style="cursor:pointer;color:#2f6feb;font-weight:600;font-size:12.5px;display:inline-block">更新履歴を表示（クリックで開閉）</summary><div style="margin-top:6px"><b>v168</b>：欠陥管理の作業者名を「現在の氏名マスタ優先」で表示（マスタを直せば再描画でこの端末は即反映）。＋欠陥管理に「最新マスタを名前に反映（クラウド）」ボタンを追加＝全期間の欠陥台帳の作業者名を現在のマスタで更新して送信（他PCにも反映／確定済みの責任所在・種別・真因は保持）。＋<b>v167</b>：この更新履歴（ログ）を既定で折りたたみ表示に変更。普段は隠し、上の「更新履歴を表示」をクリックした時だけ展開します。＋<b>v166</b>：ダッシュボード上部に「現在のデータを最新化（全部送信）」ボタンを追加＝担当端末が管理者モードに入らず、生産性(明細/サマリ)＋品質台帳をまとめて手動アップロード可能に（従来の全部送信ボタンは管理者限定のクラウド設定内のみだった）。「品質台帳を更新」は「品質台帳のみ更新」に整理。＋クラウド設定の「今すぐアップロード」も全部送信化。生産性の明細/サマリ＋品質台帳を1クリック・1パスコードでまとめて送信（従来は明細/サマリのみ送信で品質台帳は別ボタンが必要だった）。＋閲覧端末の自動更新を追加。開いたままでも他PCのアップロードを約60秒ごと（＋ブラウザのタブに戻った時）に検知し、生産性(FR/PPR)・品質を自動で最新化（タブ右上に「自動更新: ON」バッジと「今すぐ最新に」ボタン）。取込/再計算中と管理端末では自動置換しません。＋取込→アップロードを見直し。①事業所パスコードを「重い集計の前」に一度だけ確認（従来は集計後にようやく聞かれ数秒の遅延）。②明細/サマリと品質台帳を1つのパスコード関門でまとめて送信し、明細/サマリも403時に再試行（従来は明細/サマリが無言で403スキップされ、別PCで最新の生産性/明細が反映されないことがあった）。③サマリ送信と明細(生産性FR/PPRを含む)送信を独立実行に変更（従来はサマリ集計/送信でつまずくと明細＝生産性の送信ごと止まり、別PCで生産性だけ更新されない原因になっていた）。別PC側は再読込／事業所の切替で最新反映（品質タブは開くたび台帳を再取得＝常に最新）。＋個人別UPHを台帳化（fr台帳を新設。「個人別 週次推移」の週別総合UPHを、生FRが無い閲覧端末でもfr台帳から同一表示。反映には「品質台帳を更新」で上げ直しが必要。バックエンドはfr種別の追加が必要）。＋生産性「週別 UPH」に「全工程を1枚(A4縦)で印刷」ボタンを追加（表示中の全工程の週別UPHをA4縦1枚に並べて印刷）。＋個人別 週次推移カードを品質×生産性タブに追加（作業者を選ぶと週別Stow DPMO〈台帳〉と週別総合UPH〈FR〉を日曜起点で表示）。＋段階5b フロア別カバレッジを台帳化（floor台帳新設。反映には「品質台帳を更新」で上げ直しが必要）。＋生産性「週別 UPH」／グラフ棒上に値表示。＋グラフの棒の上にDPMO/UPH値を表示（週別・項目別・個人別）。＋「週別 DPMO」棒グラフ（軸切替。指標連動、棒クリックで週明細）。＋ASINを台帳に追加し欠陥管理一覧の商品名の左横・ポップアップ・品質ドリルダウンに表示／上部バーの期間指定を非表示で1行整理／取込時に品質台帳も自動更新＋「品質台帳を更新」ボタン。＋欠陥管理タブ改良（確定ボタンを発生日の右横／行クリックで詳細ポップアップ／パスコードその場入力・自動再試行）／起動高速化（5c）／品質タブ台帳ベース（5a）／DPMO定義を欠陥管理に統一。</div></details></div>
     </div>
     <div style="display:flex;flex-direction:row;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end">
       <div id="siteChip" style="font-size:13px;font-weight:700;padding:6px 14px;border-radius:999px;background:#1f3a5f;color:#fff;white-space:nowrap"></div>
@@ -3212,6 +3212,10 @@ async function cfPatchDefect(site, edit){
   return res.json();
 }
 
+/* 欠陥の作業者名は「現在の氏名マスタ優先 → 台帳の baked name → アカウント」で解決。
+   マスタを直せば（再描画で）この端末の表示は即更新。クラウド反映は「最新マスタを名前に反映」ボタン。 */
+function defWorkerName(r){ if(!r) return ''; const a2n=acctName(); return (r.acct && a2n[r.acct]) || r.name || r.acct || ''; }
+
 function paneDefects(pane){
   pane.innerHTML='';
   const site=VIEW_SITE||CUR_SITE;
@@ -3222,8 +3226,11 @@ function paneDefects(pane){
   const reload=el('button','btn gho','再読込');
   const filt=el('select'); ['全件','未確定のみ','確定済みのみ'].forEach(o=>{const op=el('option');op.value=o;op.textContent=o;filt.appendChild(op);});
   const bulkBtn=el('button','btn gho','表示中の未確定を一括確定');
+  const nameBtn=el('button','btn gho','最新マスタを名前に反映（クラウド）');
+  nameBtn.title='現在の氏名マスタに合わせて、欠陥台帳の作業者名を全期間ぶん更新し、クラウドへ送信します（他PCにも反映）。確定済みの責任所在・種別・真因は保持されます。';
   const msg=el('span'); msg.style.cssText='font-size:12px;color:var(--mut)';
   bar.appendChild(title); bar.appendChild(reload); bar.appendChild(filt); bar.appendChild(bulkBtn);
+  if(writable) bar.appendChild(nameBtn);
   if(writable){
     const pcBtn=el('button','btn gho', cfPass()?'パスコード変更':'パスコード設定');
     pcBtn.title='この端末の事業所パスコードを設定（書き込みに必要。Workerの SITE_PASSCODE と一致が必要）';
@@ -3297,8 +3304,8 @@ function paneDefects(pane){
       // 4) 種別
       td=el('td'); const selT=el('select'); TYPE_OPTS.forEach(o=>{const op=el('option');op.value=o;op.textContent=o;if(o===r.type)op.selected=true;selT.appendChild(op);});
       selT.disabled=!writable; td.appendChild(selT); tr.appendChild(td);
-      // 5) 作業者
-      td=el('td'); td.textContent=(r.name||r.acct||''); tr.appendChild(td);
+      // 5) 作業者（現在の氏名マスタ優先で表示）
+      td=el('td'); td.textContent=defWorkerName(r); tr.appendChild(td);
       // 6) エリア
       td=el('td'); td.textContent=r.area||''; tr.appendChild(td);
       // 7) ASIN（商品の左横）
@@ -3350,6 +3357,25 @@ function paneDefects(pane){
     }catch(e){ msg.textContent='読み込み失敗: '+e.message; }
   }
   reload.onclick=load; filt.onchange=render;
+  // 最新マスタを欠陥台帳の作業者名へ反映（全期間・クラウド送信）
+  nameBtn.onclick=async()=>{
+    if(!writable){ msg.textContent='閲覧のみの事業所です'; return; }
+    const a2n=acctName();
+    if(!Object.keys(a2n).length){ toast('氏名マスタが空です。先にマスタを登録してください'); return; }
+    // クラウドの全欠陥を対象に、アカウント一致で現在のマスタ名へ更新（差分のみ送信）
+    const changed=[];
+    DEFECTS_CACHE.forEach(r=>{ if(r.acct){ const nn=a2n[r.acct]; if(nn && nn!==r.name) changed.push({...r, name:nn}); } });
+    if(!changed.length){ toast('更新対象はありません（マスタ一致の名前は反映済みです）'); return; }
+    if(!confirm('作業者名 '+changed.length+' 件を最新の氏名マスタに更新し、クラウドへ送信します（全期間・他PCにも反映）。\n確定済みの責任所在・種別・真因はそのまま保持されます。よろしいですか？')) return;
+    nameBtn.disabled=true; msg.textContent='最新マスタを反映中…（'+changed.length+'件）';
+    try{
+      await withPasscodeRetry(()=>cfPostDefects(site, changed));
+      msg.textContent='クラウド更新完了。再読込します…';
+      await load();
+      toast(changed.length+'件の作業者名を最新マスタに更新しました');
+    }catch(e){ msg.textContent='更新失敗: '+e.message; }
+    nameBtn.disabled=false;
+  };
   bulkBtn.onclick=async()=>{
     if(!writable){ msg.textContent='閲覧のみの事業所です'; return; }
     // 現在の表示フィルタで見えている未確定行を対象に一括確定
@@ -3407,7 +3433,7 @@ function showDefectDetail(r, tr, confirmed){
     +rowLine('発生日',r.d)
     +rowLine('責任所在',r.process)
     +rowLine('種別',r.type)
-    +rowLine('作業者',r.name||r.acct)
+    +rowLine('作業者',defWorkerName(r))
     +rowLine('エリア',r.area)
     +rowLine('ASIN',r.asin)
     +rowLine('商品',r.item)
