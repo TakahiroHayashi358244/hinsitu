@@ -241,7 +241,7 @@ tr.out td{color:var(--mut);font-style:italic}
   <div class="top">
     <div>
       <div class="title" id="mainTitle">品質×生産性 統合ダッシュボード</div>
-      <div class="sub">DPMO（品質）と UPH（生産性）を1つのツールで。CSV / ZIP をドラッグ&ドロップ、ヘッダーで自動判別。<b>v165</b>：他PC取込→アップロード時、事業所パスコードを「重い集計・送信の前」に確認するよう変更（従来は集計後にようやく聞かれ、プロンプト表示まで数秒の遅延＋初回のサマリ/明細送信が403で無言スキップになっていた）。＋個人別UPHを台帳化（fr台帳を新設。「個人別 週次推移」の週別総合UPHを、生FRが無い閲覧端末でもfr台帳から同一表示。反映には「品質台帳を更新」で上げ直しが必要。バックエンドはfr種別の追加が必要）。＋生産性「週別 UPH」に「全工程を1枚(A4縦)で印刷」ボタンを追加（表示中の全工程の週別UPHをA4縦1枚に並べて印刷）。＋個人別 週次推移カードを品質×生産性タブに追加（作業者を選ぶと週別Stow DPMO〈台帳〉と週別総合UPH〈FR〉を日曜起点で表示）。＋段階5b フロア別カバレッジを台帳化（floor台帳新設。反映には「品質台帳を更新」で上げ直しが必要）。＋生産性「週別 UPH」／グラフ棒上に値表示。＋グラフの棒の上にDPMO/UPH値を表示（週別・項目別・個人別）。＋「週別 DPMO」棒グラフ（軸切替。指標連動、棒クリックで週明細）。＋ASINを台帳に追加し欠陥管理一覧の商品名の左横・ポップアップ・品質ドリルダウンに表示／上部バーの期間指定を非表示で1行整理／取込時に品質台帳も自動更新＋「品質台帳を更新」ボタン。＋欠陥管理タブ改良（確定ボタンを発生日の右横／行クリックで詳細ポップアップ／パスコードその場入力・自動再試行）／起動高速化（5c）／品質タブ台帳ベース（5a）／DPMO定義を欠陥管理に統一。</div>
+      <div class="sub">DPMO（品質）と UPH（生産性）を1つのツールで。CSV / ZIP をドラッグ&ドロップ、ヘッダーで自動判別。<b>v165</b>：取込→アップロードを見直し。①事業所パスコードを「重い集計の前」に一度だけ確認（従来は集計後にようやく聞かれ数秒の遅延）。②明細/サマリと品質台帳を1つのパスコード関門でまとめて送信し、明細/サマリも403時に再試行（従来は明細/サマリが無言で403スキップされ、別PCで最新の生産性/明細が反映されないことがあった）。別PC側は再読込／事業所の切替で最新反映。＋個人別UPHを台帳化（fr台帳を新設。「個人別 週次推移」の週別総合UPHを、生FRが無い閲覧端末でもfr台帳から同一表示。反映には「品質台帳を更新」で上げ直しが必要。バックエンドはfr種別の追加が必要）。＋生産性「週別 UPH」に「全工程を1枚(A4縦)で印刷」ボタンを追加（表示中の全工程の週別UPHをA4縦1枚に並べて印刷）。＋個人別 週次推移カードを品質×生産性タブに追加（作業者を選ぶと週別Stow DPMO〈台帳〉と週別総合UPH〈FR〉を日曜起点で表示）。＋段階5b フロア別カバレッジを台帳化（floor台帳新設。反映には「品質台帳を更新」で上げ直しが必要）。＋生産性「週別 UPH」／グラフ棒上に値表示。＋グラフの棒の上にDPMO/UPH値を表示（週別・項目別・個人別）。＋「週別 DPMO」棒グラフ（軸切替。指標連動、棒クリックで週明細）。＋ASINを台帳に追加し欠陥管理一覧の商品名の左横・ポップアップ・品質ドリルダウンに表示／上部バーの期間指定を非表示で1行整理／取込時に品質台帳も自動更新＋「品質台帳を更新」ボタン。＋欠陥管理タブ改良（確定ボタンを発生日の右横／行クリックで詳細ポップアップ／パスコードその場入力・自動再試行）／起動高速化（5c）／品質タブ台帳ベース（5a）／DPMO定義を欠陥管理に統一。</div>
     </div>
     <div style="display:flex;flex-direction:row;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end">
       <div id="siteChip" style="font-size:13px;font-weight:700;padding:6px 14px;border-radius:999px;background:#1f3a5f;color:#fff;white-space:nowrap"></div>
@@ -1056,23 +1056,20 @@ async function handleFiles(fileList){
   await reloadFR();
   await reloadPPR();
   await refreshState();
-  // [遅延対策] 書込端末は「重い集計・送信」の前に一度だけパスコードを確保する。
-  //   これが無いと cfAutoUpload の集計(computeQuality)が終わってから初めてパスコードを聞かれ、
-  //   ①プロンプト表示までに数秒の遅延、②初回サマリ/明細送信が403で無言スキップ、が起きていた。
-  if(cfBase() && cfToken() && canWrite(CUR_SITE) && !cfPass()){
-    Prog.phase('クラウド送信','事業所パスコードを入力してください');
-    ensurePasscode();   // キャンセルされても後続は従来どおり（各送信がスキップ/失敗ログを出す）
-  }
-  // [追加] 取込完了後、Cloudflareへ自動アップロード（設定済み端末のみ動作）
-  await cfAutoUpload();
-  // [段階5] 品質タブは台帳を読むため、取込後に品質台帳も再生成・送信する（これが無いと品質が更新されない）。
+  // [追加] 取込完了後、Cloudflareへアップロード（担当事業所を表示中の書込端末のみ）。
+  //   raw明細/サマリ(cfAutoUpload)と品質台帳(cfUploadLedgers)を「1つのパスコード関門」でまとめて送る。
+  //   ・パスコードは重い集計の前に一度だけ聞かれる（withPasscodeRetryが fn 実行前に確認）＝遅延解消。
+  //   ・raw/サマリも 403 を投げて再試行に乗せる＝「初回だけ明細が上がらず、別PCに反映されない」問題を解消。
   if(cfBase() && cfToken() && canWrite(CUR_SITE)){
-    Prog.phase('クラウド送信','品質台帳を更新中…');
+    Prog.phase('クラウド送信','クラウドへアップロード中…');
     try{
-      await withPasscodeRetry(()=>cfUploadLedgers(null, true));
-      logLine('📒 品質台帳を更新しました（品質タブに反映されます。「品質を再計算」で表示更新）','ok');
+      await withPasscodeRetry(async()=>{
+        await cfAutoUpload(null, true);      // 明細スナップショット＋サマリ（別PCの生産性/明細表示の元）
+        await cfUploadLedgers(null, true);   // 品質台帳（品質・欠陥・個人UPH の元）
+      });
+      logLine('☁ クラウドへアップロードしました（明細・サマリ・品質台帳）。別PCでは再読込／事業所の切替で最新が反映されます。','ok');
     }catch(e){
-      logLine('📒 品質台帳の更新に失敗：'+e.message+'（事業所パスコード未設定の可能性。欠陥管理タブの「パスコード設定」後に「品質台帳を更新」してください）','wn');
+      logLine('☁ クラウド送信に失敗：'+e.message+'（事業所パスコードをご確認ください。欠陥管理タブの「パスコード設定」後に「品質台帳を更新」で再送できます）','wn');
     }
   }
   Prog.tick();               // 末尾の +1（保存・送信）分を消化
@@ -1935,7 +1932,7 @@ function buildQReportFromLedgers(L, from, to, site){
 
 /* 取込完了フック本体（既存A-1版）：担当サイトを算出し、サマリ＋明細をアップロード
    logTarget を渡すと #cfLog 等へ、渡さなければ従来どおり画面ログ(logLine)へ */
-async function cfAutoUpload(logTarget){
+async function cfAutoUpload(logTarget, throwOnErr){
   const base=cfBase(), token=cfToken();
   if(!base || !token) return; // 閲覧端末・未設定端末は何もしない
   const site=cfSite();
@@ -1968,7 +1965,7 @@ async function cfAutoUpload(logTarget){
     }
   }catch(e){
     say('☁ クラウド送信スキップ：'+e.message,'wn');
-    if(logTarget) throw e; // 手動アップロード時は呼び出し側へ通知
+    if(logTarget||throwOnErr) throw e; // 手動アップロード or パスコード再試行に委ねる場合は呼び出し側へ通知
   }
 }
 
