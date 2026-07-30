@@ -241,7 +241,7 @@ tr.out td{color:var(--mut);font-style:italic}
   <div class="top">
     <div>
       <div class="title" id="mainTitle">品質×生産性 統合ダッシュボード</div>
-      <div class="sub">DPMO（品質）と UPH（生産性）を1つのツールで。CSV / ZIP をドラッグ&ドロップ、ヘッダーで自動判別。<b>v165</b>：取込→アップロードを見直し。①事業所パスコードを「重い集計の前」に一度だけ確認（従来は集計後にようやく聞かれ数秒の遅延）。②明細/サマリと品質台帳を1つのパスコード関門でまとめて送信し、明細/サマリも403時に再試行（従来は明細/サマリが無言で403スキップされ、別PCで最新の生産性/明細が反映されないことがあった）。別PC側は再読込／事業所の切替で最新反映。＋個人別UPHを台帳化（fr台帳を新設。「個人別 週次推移」の週別総合UPHを、生FRが無い閲覧端末でもfr台帳から同一表示。反映には「品質台帳を更新」で上げ直しが必要。バックエンドはfr種別の追加が必要）。＋生産性「週別 UPH」に「全工程を1枚(A4縦)で印刷」ボタンを追加（表示中の全工程の週別UPHをA4縦1枚に並べて印刷）。＋個人別 週次推移カードを品質×生産性タブに追加（作業者を選ぶと週別Stow DPMO〈台帳〉と週別総合UPH〈FR〉を日曜起点で表示）。＋段階5b フロア別カバレッジを台帳化（floor台帳新設。反映には「品質台帳を更新」で上げ直しが必要）。＋生産性「週別 UPH」／グラフ棒上に値表示。＋グラフの棒の上にDPMO/UPH値を表示（週別・項目別・個人別）。＋「週別 DPMO」棒グラフ（軸切替。指標連動、棒クリックで週明細）。＋ASINを台帳に追加し欠陥管理一覧の商品名の左横・ポップアップ・品質ドリルダウンに表示／上部バーの期間指定を非表示で1行整理／取込時に品質台帳も自動更新＋「品質台帳を更新」ボタン。＋欠陥管理タブ改良（確定ボタンを発生日の右横／行クリックで詳細ポップアップ／パスコードその場入力・自動再試行）／起動高速化（5c）／品質タブ台帳ベース（5a）／DPMO定義を欠陥管理に統一。</div>
+      <div class="sub">DPMO（品質）と UPH（生産性）を1つのツールで。CSV / ZIP をドラッグ&ドロップ、ヘッダーで自動判別。<b>v165</b>：取込→アップロードを見直し。①事業所パスコードを「重い集計の前」に一度だけ確認（従来は集計後にようやく聞かれ数秒の遅延）。②明細/サマリと品質台帳を1つのパスコード関門でまとめて送信し、明細/サマリも403時に再試行（従来は明細/サマリが無言で403スキップされ、別PCで最新の生産性/明細が反映されないことがあった）。③サマリ送信と明細(生産性FR/PPRを含む)送信を独立実行に変更（従来はサマリ集計/送信でつまずくと明細＝生産性の送信ごと止まり、別PCで生産性だけ更新されない原因になっていた）。別PC側は再読込／事業所の切替で最新反映（品質タブは開くたび台帳を再取得＝常に最新）。＋個人別UPHを台帳化（fr台帳を新設。「個人別 週次推移」の週別総合UPHを、生FRが無い閲覧端末でもfr台帳から同一表示。反映には「品質台帳を更新」で上げ直しが必要。バックエンドはfr種別の追加が必要）。＋生産性「週別 UPH」に「全工程を1枚(A4縦)で印刷」ボタンを追加（表示中の全工程の週別UPHをA4縦1枚に並べて印刷）。＋個人別 週次推移カードを品質×生産性タブに追加（作業者を選ぶと週別Stow DPMO〈台帳〉と週別総合UPH〈FR〉を日曜起点で表示）。＋段階5b フロア別カバレッジを台帳化（floor台帳新設。反映には「品質台帳を更新」で上げ直しが必要）。＋生産性「週別 UPH」／グラフ棒上に値表示。＋グラフの棒の上にDPMO/UPH値を表示（週別・項目別・個人別）。＋「週別 DPMO」棒グラフ（軸切替。指標連動、棒クリックで週明細）。＋ASINを台帳に追加し欠陥管理一覧の商品名の左横・ポップアップ・品質ドリルダウンに表示／上部バーの期間指定を非表示で1行整理／取込時に品質台帳も自動更新＋「品質台帳を更新」ボタン。＋欠陥管理タブ改良（確定ボタンを発生日の右横／行クリックで詳細ポップアップ／パスコードその場入力・自動再試行）／起動高速化（5c）／品質タブ台帳ベース（5a）／DPMO定義を欠陥管理に統一。</div>
     </div>
     <div style="display:flex;flex-direction:row;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end">
       <div id="siteChip" style="font-size:13px;font-weight:700;padding:6px 14px;border-radius:999px;background:#1f3a5f;color:#fff;white-space:nowrap"></div>
@@ -1937,10 +1937,16 @@ async function cfAutoUpload(logTarget, throwOnErr){
   if(!base || !token) return; // 閲覧端末・未設定端末は何もしない
   const site=cfSite();
   const say=(msg,cls)=>{ if(logTarget) syncLog(msg,cls,logTarget); else logLine(msg,cls); };
+  const isPass=e=>{ const m=(e&&e.message)||''; return /passcode/i.test(m)||/\b403\b/.test(m); };
+  // 手動(logTarget)は何でも上位へ通知。自動(throwOnErr)はパスコード誤りのみ上位へ（再試行に乗せる）。
+  //   → サマリ失敗が明細(生産性)送信を巻き込まないよう、①サマリ と ②明細 を独立実行する。
+  const propagate=e=>logTarget ? true : (throwOnErr && isPass(e));
+  let resolvedTo='';
+  // 1) サマリ（日次集計）
   try{
-    // 1) 集計（全期間）— computeQuality は site 指定で当該事業所のみ集計
     Prog.phase('クラウド送信', '集計中…');
     const rep=await computeQuality(site, '', '', null);
+    resolvedTo=rep.resolvedTo||'';
     const siteDaily=toSiteDaily(rep, site);
     const workerDaily=toWorkerDaily(rep, site);
     if(siteDaily.length || workerDaily.length){
@@ -1950,9 +1956,14 @@ async function cfAutoUpload(logTarget, throwOnErr){
     } else {
       say('☁ 送信対象のサマリがありません（集計結果が空）','wn');
     }
-    // 2) 明細スナップショット（12週保持層）— 週キーは最新実績日基準
+  }catch(e){
+    say('☁ サマリ送信スキップ：'+e.message,'wn');
+    if(propagate(e)) throw e;   // パスコード誤りは再試行へ。それ以外は②明細送信を続行。
+  }
+  // 2) 明細スナップショット（★FR/PPR=生産性を含む。閲覧端末の生産性・明細表示のもと）— サマリと独立
+  try{
     Prog.phase('クラウド送信', '明細を送信中…');
-    const wk=isoWeekKey(rep.resolvedTo? new Date(rep.resolvedTo): new Date());
+    const wk=isoWeekKey(resolvedTo? new Date(resolvedTo): new Date());
     const {snap}=await buildSnapshot();
     const r2=await cfPutRaw(site, wk, snap);
     if(!r2.skipped) say('☁ 明細送信 '+site+'/'+wk+'（'+((r2.bytes||0)/1024).toFixed(0)+'KB）','ok');
@@ -1964,8 +1975,8 @@ async function cfAutoUpload(logTarget, throwOnErr){
       }catch(e){}
     }
   }catch(e){
-    say('☁ クラウド送信スキップ：'+e.message,'wn');
-    if(logTarget||throwOnErr) throw e; // 手動アップロード or パスコード再試行に委ねる場合は呼び出し側へ通知
+    say('☁ 明細送信スキップ：'+e.message+'（別PCの生産性が更新されません）','wn');
+    if(propagate(e)) throw e; // パスコード誤りのみ再試行へ（非パスコードは台帳送信を止めない）
   }
 }
 
