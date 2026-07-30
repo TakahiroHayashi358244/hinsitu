@@ -241,7 +241,7 @@ tr.out td{color:var(--mut);font-style:italic}
   <div class="top">
     <div>
       <div class="title" id="mainTitle">品質×生産性 統合ダッシュボード</div>
-      <div class="sub">DPMO（品質）と UPH（生産性）を1つのツールで。CSV / ZIP をドラッグ&ドロップ、ヘッダーで自動判別。<b>v166</b>：閲覧端末の自動更新を追加。開いたままでも他PCのアップロードを約60秒ごと（＋ブラウザのタブに戻った時）に検知し、生産性(FR/PPR)・品質を自動で最新化（タブ右上に「自動更新: ON」バッジと「今すぐ最新に」ボタン）。取込/再計算中と管理端末では自動置換しません。＋取込→アップロードを見直し。①事業所パスコードを「重い集計の前」に一度だけ確認（従来は集計後にようやく聞かれ数秒の遅延）。②明細/サマリと品質台帳を1つのパスコード関門でまとめて送信し、明細/サマリも403時に再試行（従来は明細/サマリが無言で403スキップされ、別PCで最新の生産性/明細が反映されないことがあった）。③サマリ送信と明細(生産性FR/PPRを含む)送信を独立実行に変更（従来はサマリ集計/送信でつまずくと明細＝生産性の送信ごと止まり、別PCで生産性だけ更新されない原因になっていた）。別PC側は再読込／事業所の切替で最新反映（品質タブは開くたび台帳を再取得＝常に最新）。＋個人別UPHを台帳化（fr台帳を新設。「個人別 週次推移」の週別総合UPHを、生FRが無い閲覧端末でもfr台帳から同一表示。反映には「品質台帳を更新」で上げ直しが必要。バックエンドはfr種別の追加が必要）。＋生産性「週別 UPH」に「全工程を1枚(A4縦)で印刷」ボタンを追加（表示中の全工程の週別UPHをA4縦1枚に並べて印刷）。＋個人別 週次推移カードを品質×生産性タブに追加（作業者を選ぶと週別Stow DPMO〈台帳〉と週別総合UPH〈FR〉を日曜起点で表示）。＋段階5b フロア別カバレッジを台帳化（floor台帳新設。反映には「品質台帳を更新」で上げ直しが必要）。＋生産性「週別 UPH」／グラフ棒上に値表示。＋グラフの棒の上にDPMO/UPH値を表示（週別・項目別・個人別）。＋「週別 DPMO」棒グラフ（軸切替。指標連動、棒クリックで週明細）。＋ASINを台帳に追加し欠陥管理一覧の商品名の左横・ポップアップ・品質ドリルダウンに表示／上部バーの期間指定を非表示で1行整理／取込時に品質台帳も自動更新＋「品質台帳を更新」ボタン。＋欠陥管理タブ改良（確定ボタンを発生日の右横／行クリックで詳細ポップアップ／パスコードその場入力・自動再試行）／起動高速化（5c）／品質タブ台帳ベース（5a）／DPMO定義を欠陥管理に統一。</div>
+      <div class="sub">DPMO（品質）と UPH（生産性）を1つのツールで。CSV / ZIP をドラッグ&ドロップ、ヘッダーで自動判別。<b>v166</b>：クラウド設定の「今すぐアップロード」を全部送信化（現在のデータを最新化）。生産性の明細/サマリ＋品質台帳を1クリック・1パスコードでまとめて送信（従来は明細/サマリのみ送信で品質台帳は別ボタンが必要だった）。＋閲覧端末の自動更新を追加。開いたままでも他PCのアップロードを約60秒ごと（＋ブラウザのタブに戻った時）に検知し、生産性(FR/PPR)・品質を自動で最新化（タブ右上に「自動更新: ON」バッジと「今すぐ最新に」ボタン）。取込/再計算中と管理端末では自動置換しません。＋取込→アップロードを見直し。①事業所パスコードを「重い集計の前」に一度だけ確認（従来は集計後にようやく聞かれ数秒の遅延）。②明細/サマリと品質台帳を1つのパスコード関門でまとめて送信し、明細/サマリも403時に再試行（従来は明細/サマリが無言で403スキップされ、別PCで最新の生産性/明細が反映されないことがあった）。③サマリ送信と明細(生産性FR/PPRを含む)送信を独立実行に変更（従来はサマリ集計/送信でつまずくと明細＝生産性の送信ごと止まり、別PCで生産性だけ更新されない原因になっていた）。別PC側は再読込／事業所の切替で最新反映（品質タブは開くたび台帳を再取得＝常に最新）。＋個人別UPHを台帳化（fr台帳を新設。「個人別 週次推移」の週別総合UPHを、生FRが無い閲覧端末でもfr台帳から同一表示。反映には「品質台帳を更新」で上げ直しが必要。バックエンドはfr種別の追加が必要）。＋生産性「週別 UPH」に「全工程を1枚(A4縦)で印刷」ボタンを追加（表示中の全工程の週別UPHをA4縦1枚に並べて印刷）。＋個人別 週次推移カードを品質×生産性タブに追加（作業者を選ぶと週別Stow DPMO〈台帳〉と週別総合UPH〈FR〉を日曜起点で表示）。＋段階5b フロア別カバレッジを台帳化（floor台帳新設。反映には「品質台帳を更新」で上げ直しが必要）。＋生産性「週別 UPH」／グラフ棒上に値表示。＋グラフの棒の上にDPMO/UPH値を表示（週別・項目別・個人別）。＋「週別 DPMO」棒グラフ（軸切替。指標連動、棒クリックで週明細）。＋ASINを台帳に追加し欠陥管理一覧の商品名の左横・ポップアップ・品質ドリルダウンに表示／上部バーの期間指定を非表示で1行整理／取込時に品質台帳も自動更新＋「品質台帳を更新」ボタン。＋欠陥管理タブ改良（確定ボタンを発生日の右横／行クリックで詳細ポップアップ／パスコードその場入力・自動再試行）／起動高速化（5c）／品質タブ台帳ベース（5a）／DPMO定義を欠陥管理に統一。</div>
     </div>
     <div style="display:flex;flex-direction:row;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end">
       <div id="siteChip" style="font-size:13px;font-weight:700;padding:6px 14px;border-radius:999px;background:#1f3a5f;color:#fff;white-space:nowrap"></div>
@@ -305,7 +305,7 @@ tr.out td{color:var(--mut);font-style:italic}
               <input type="password" id="cfToken" placeholder="Bearer トークン" style="width:calc(100% - 160px);margin-left:4px">
             </label>
             <button class="btn gho" id="btnCfTest">接続テスト</button>
-            <button class="btn" id="btnCfPush">今すぐアップロード</button>
+            <button class="btn" id="btnCfPush" title="いま端末にある取込済みデータ（生産性の明細・サマリと品質台帳）をまとめてクラウドへ送り、最新として反映します">今すぐ全部アップロード（現在のデータを最新化）</button>
           </div>
           <div style="margin-top:8px;font-size:12.5px;color:var(--mut)">
             <b>データ読込元</b>（起動時）：
@@ -4196,19 +4196,24 @@ async function init(){
       cfSetSite(cS.value); cfSetBase(cB.value); cfSetToken(cT.value);
       if(!cfBase()){ syncLog('✕ Worker URL を入力してください','er','#cfLog'); return; }
       if(!cfToken()){ syncLog('✕ 書込トークンが未設定です（閲覧端末は送信できません）','er','#cfLog'); return; }
+      if(!canWrite(CUR_SITE)){ syncLog('✕ 担当事業所（'+CUR_SITE+'）を表示中のみアップロードできます','er','#cfLog'); return; }
       btnP.disabled=true;
       Prog.begin('クラウドアップロード', null);
-      syncLog('☁ アップロード開始…（現在のデータを集計して送信します）','dim','#cfLog');
+      syncLog('☁ アップロード開始…（現在のデータを最新としてクラウドへ送信します）','dim','#cfLog');
       try{
-        await cfAutoUpload('#cfLog');
-        syncLog('☁ アップロード完了','ok','#cfLog');
+        // 取込直後と同じ「1つのパスコード関門でまとめて送信」。明細/サマリ(生産性)＋品質台帳(品質・欠陥・個人UPH)。
+        await withPasscodeRetry(async()=>{
+          await cfAutoUpload(null, true);      // 明細スナップショット＋サマリ（別PCの生産性/明細の元）
+          await cfUploadLedgers(null, true);   // 品質台帳（品質・欠陥・個人UPHの元）
+        });
+        syncLog('☁ アップロード完了（明細・サマリ・品質台帳）。別PCは自動更新（約60秒）／「今すぐ最新に」で反映されます。','ok','#cfLog');
         // 送信後、クラウド側の件数を再確認
         Prog.setPhaseIndet('クラウド側の件数を確認中…');
         const s=await fetch(cfBase()+'/summary?site='+encodeURIComponent(cfSite())+'&kind=site').then(x=>x.json()).catch(()=>null);
         if(s&&s.ok) syncLog('　クラウド側サマリ: 日別'+(s.rows?s.rows.length:0)+'行','dim','#cfLog');
         Prog.finish('アップロード完了');
-        toast('クラウドへアップロードしました');
-      }catch(e){ syncLog('✕ アップロード失敗：'+e.message,'er','#cfLog'); Prog.fail('アップロード失敗'); }
+        toast('現在のデータを最新としてアップロードしました');
+      }catch(e){ syncLog('✕ アップロード失敗：'+e.message+'（事業所パスコードをご確認ください）','er','#cfLog'); Prog.fail('アップロード失敗'); }
       btnP.disabled=false;
     };
   }
