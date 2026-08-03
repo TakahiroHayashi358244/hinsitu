@@ -603,9 +603,9 @@ function renderSummary(){
    ・GAP＝実績率−ターゲット率（＋は未達）／判定：実績率≤ターゲット率で達成
    ========================================================= */
 const MISS = {
-  Receive: {tNum:'', tDen:'', aDen:''},
-  Stow:    {tNum:'', tDen:'', aDen:''},
-  Pick:    {tNum:'', tDen:'', aDen:''},
+  Receive: {tDpmo:'', aDen:''},
+  Stow:    {tDpmo:'', aDen:''},
+  Pick:    {tDpmo:'', aDen:''},
 };
 const MISS_ROWS = [
   {key:'Receive', en:'Receive', jp:'レシーブ'},
@@ -621,21 +621,20 @@ function missData(key){
   return {qty:null, unit:null};
 }
 function mNum(v){ if(v===''||v==null) return null; const n=Number(v); return isFinite(n)?n:null; }
-// 1行分の計算結果
+// 1行分の計算結果（DPMO基準）
 function computeMissRow(row){
   const st=MISS[row.key]; const d=missData(row.key);
   const aNum=d.qty;                 // 実績分子（自動）
   const aDen=mNum(st.aDen);         // 実績分母（手入力・固定）
-  const tNum=mNum(st.tNum), tDen=mNum(st.tDen);
-  const aRate=(aNum!=null&&aDen&&aDen>0)?aNum/aDen:null;   // 割合(0-1)
-  const tRate=(tNum!=null&&tDen&&tDen>0)?tNum/tDen:null;
-  const gap=(aRate!=null&&tRate!=null)?(aRate-tRate):null; // ＋=未達
-  const pass=(aRate!=null&&tRate!=null)?(aRate<=tRate):null;
-  return {...row, aNum, aDen, tNum, tDen, aRate, tRate, gap, pass, unit:d.unit};
+  const tDpmo=mNum(st.tDpmo);       // ターゲットDPMO（直接手入力）
+  const aDpmo=(aNum!=null&&aDen&&aDen>0)?(aNum/aDen*1e6):null;  // 実績DPMO
+  const gap=(aDpmo!=null&&tDpmo!=null)?(aDpmo-tDpmo):null;       // ＋=未達
+  const pass=(aDpmo!=null&&tDpmo!=null)?(aDpmo<=tDpmo):null;
+  return {...row, aNum, aDen, tDpmo, aDpmo, gap, pass, unit:d.unit};
 }
 function computeMiss(){ return MISS_ROWS.map(computeMissRow); }
-const pctR=v=>v==null?'－.－％':((v*100).toFixed(3)+'％');
-const gapR=v=>v==null?'＋/－ _._％':((v>=0?'＋':'−')+Math.abs(v*100).toFixed(3)+'％');
+const dpmoR=v=>v==null?'－':Math.round(v).toLocaleString();
+const gapR=v=>v==null?'＋/－ _':((v>=0?'＋':'−')+Math.round(Math.abs(v)).toLocaleString());
 
 function renderMiss(){
   const host=$('#missWrap'); if(!host) return;
@@ -643,9 +642,9 @@ function renderMiss(){
   // 実績分母が空なら処理ユニット数を初期値として投入（上書き可）
   MISS_ROWS.forEach(r=>{ if(MISS[r.key].aDen===''){ const u=missData(r.key).unit; if(u!=null) MISS[r.key].aDen=String(u); } });
   const inCell=(val,ph,on)=>'<input type="number" min="0" step="any" data-k="'+on.k+'" data-f="'+on.f+'" value="'+(val===''?'':val)+'" placeholder="'+(ph||'')+'" style="width:96px;padding:5px 7px;border:1px solid #cfd8e6;border-radius:6px;font-size:12px">';
-  let h='<table style="border-collapse:collapse;font-size:12.5px;min-width:820px">';
+  let h='<table style="border-collapse:collapse;font-size:12.5px;min-width:720px">';
   h+='<thead><tr style="background:#1F4E79;color:#fff">'
-   +['工程','ターゲット分子','ターゲット分母','ターゲット率','実績ユニット<br><span style="font-weight:400;font-size:10px">(データ・分子)</span>','実績分母<br><span style="font-weight:400;font-size:10px">(手入力・固定)</span>','実績率','GAP','判定']
+   +['工程','ターゲット DPMO<br><span style="font-weight:400;font-size:10px">(手入力)</span>','実績ユニット<br><span style="font-weight:400;font-size:10px">(データ・分子)</span>','実績分母<br><span style="font-weight:400;font-size:10px">(手入力・固定)</span>','実績 DPMO','GAP','判定']
      .map(t=>'<th style="padding:7px 9px;border:1px solid #2b4d70;text-align:center;font-weight:700">'+t+'</th>').join('')
    +'</tr></thead><tbody>';
   MISS_ROWS.forEach(r=>{
@@ -653,9 +652,7 @@ function renderMiss(){
     const auto = d.qty==null?'<span style="color:#C0392B">データなし</span>':fmtI(d.qty);
     h+='<tr data-row="'+r.key+'">'
      +'<td style="padding:6px 9px;border:1px solid #e2e7ee;font-weight:700">'+r.en+'<span style="color:#6B7A90;font-weight:400">（'+r.jp+'）</span></td>'
-     +'<td style="padding:6px 9px;border:1px solid #e2e7ee;text-align:center">'+inCell(MISS[r.key].tNum,'例:50',{k:r.key,f:'tNum'})+'</td>'
-     +'<td style="padding:6px 9px;border:1px solid #e2e7ee;text-align:center">'+inCell(MISS[r.key].tDen,'例:100000',{k:r.key,f:'tDen'})+'</td>'
-     +'<td class="c-trate" style="padding:6px 9px;border:1px solid #e2e7ee;text-align:center;font-weight:700"></td>'
+     +'<td style="padding:6px 9px;border:1px solid #e2e7ee;text-align:center">'+inCell(MISS[r.key].tDpmo,'例:1500',{k:r.key,f:'tDpmo'})+'</td>'
      +'<td style="padding:6px 9px;border:1px solid #e2e7ee;text-align:center">'+auto+'</td>'
      +'<td style="padding:6px 9px;border:1px solid #e2e7ee;text-align:center">'+inCell(MISS[r.key].aDen,'例:100000',{k:r.key,f:'aDen'})+'</td>'
      +'<td class="c-arate" style="padding:6px 9px;border:1px solid #e2e7ee;text-align:center;font-weight:700"></td>'
@@ -679,8 +676,7 @@ function updateMissDerived(){
     const passCol = r.pass==null?'#6B7A90':(r.pass?'#0F9D8F':'#C0392B');
     const gapCol  = r.gap==null?'#6B7A90':(r.gap<=0?'#0F9D8F':'#C0392B');
     const set=(cls,txt,col)=>{ const c=tr.querySelector('.'+cls); if(c){ c.textContent=txt; if(col)c.style.color=col; } };
-    set('c-trate',pctR(r.tRate));
-    set('c-arate',pctR(r.aRate));
+    set('c-arate',dpmoR(r.aDpmo));
     set('c-gap',gapR(r.gap),gapCol);
     set('c-pass',passTxt,passCol);
   });
@@ -983,10 +979,10 @@ function buildPreview(){
      +'<div style="position:absolute;left:40px;top:452px;font-size:11px;color:'+MUT+'"><span style="color:#2F8F4E">●</span> 完了　<span style="color:#C47F17">●</span> 進行中　<span style="color:#C0392B">●</span> 遅延　<span style="color:#9AA6B4">●</span> 未着手</div>'
      +foot(3));}
 
-  /* 4 プロセスミスレート（ターゲット手入力＋実績=欠陥ユニット/手入力分母） */
+  /* 4 プロセスミスレート（ターゲットDPMO手入力＋実績=欠陥ユニット/手入力分母・DPMO表示） */
   {const GREEN='#2FA37A', RED='#C0392B';
-   const fp=v=>v==null?'－.－％':((v*100).toFixed(3)+'％');
-   const fg=v=>v==null?'GAP：＋/－ _._％':('GAP：'+(v>=0?'＋':'−')+Math.abs(v*100).toFixed(3)+'％');
+   const fd=v=>v==null?'－':Math.round(v).toLocaleString();
+   const fg=v=>v==null?'GAP：＋/－ _':('GAP：'+(v>=0?'＋':'−')+Math.round(Math.abs(v)).toLocaleString());
    const rows=computeMiss();let c='';
    rows.forEach((r,i)=>{const x=40+i*315;
      const pill=r.pass==null?'#8A97AD':(r.pass?GREEN:RED);
@@ -995,13 +991,13 @@ function buildPreview(){
      c+='<div style="position:absolute;left:'+x+'px;top:105px;width:295px;height:295px;background:'+CARD+';border:1px solid #E6E9ED;border-radius:8px"></div>';
      c+='<div style="position:absolute;left:'+x+'px;top:118px;width:295px;text-align:center;font-size:17px;font-weight:700;color:'+NAVY+'">'+r.en+'</div>';
      c+='<div style="position:absolute;left:'+x+'px;top:146px;width:295px;text-align:center;font-size:11px;color:'+MUT+'">'+r.jp+'</div>';
-     c+='<div style="position:absolute;left:'+x+'px;top:174px;width:295px;text-align:center;font-size:26px;font-weight:800;color:'+INK+'">'+fp(r.aRate)+'</div>';
+     c+='<div style="position:absolute;left:'+x+'px;top:174px;width:295px;text-align:center;font-size:26px;font-weight:800;color:'+INK+'">'+fd(r.aDpmo)+'<span style="font-size:12px;color:'+MUT+'"> DPMO</span></div>';
      c+='<div style="position:absolute;left:'+x+'px;top:216px;width:295px;text-align:center;font-size:10px;color:'+MUT+'">実績 '+(r.aNum==null?'―':fmtI(r.aNum))+' / '+(r.aDen==null?'―':fmtI(r.aDen))+'</div>';
-     c+='<div style="position:absolute;left:'+x+'px;top:238px;width:295px;text-align:center;font-size:10.5px;color:'+MUT+'">Target '+fp(r.tRate)+'　('+(r.tNum==null?'―':fmtI(r.tNum))+' / '+(r.tDen==null?'―':fmtI(r.tDen))+')</div>';
+     c+='<div style="position:absolute;left:'+x+'px;top:238px;width:295px;text-align:center;font-size:10.5px;color:'+MUT+'">Target '+fd(r.tDpmo)+' DPMO</div>';
      c+='<div style="position:absolute;left:'+(x+42)+'px;top:266px;width:211px;height:34px;background:'+pill+';border-radius:5px;color:#fff;font-weight:700;font-size:11px;display:flex;align-items:center;justify-content:center">'+fg(r.gap)+'</div>';
      c+='<div style="position:absolute;left:'+x+'px;top:312px;width:295px;text-align:center;font-size:14px;font-weight:800;color:'+jCol+'">'+jTxt+'</div>';});
    S(top+sect('02','プロセスミスレート','Process Miss Rate')+c
-     +'<div style="position:absolute;left:40px;top:420px;font-size:10px;font-style:italic;color:'+MUT+'">※ 実績率＝欠陥ユニット数（データ）÷実績分母（手入力）。ターゲット率＝分子÷分母（手入力）。GAP＝実績−ターゲット（＋は未達）／判定：実績率≤ターゲットで達成。</div>'+foot(4));}
+     +'<div style="position:absolute;left:40px;top:420px;font-size:10px;font-style:italic;color:'+MUT+'">※ 実績DPMO＝欠陥ユニット数（データ）÷実績分母（手入力）×100万。ターゲットDPMOは手入力。GAP＝実績−ターゲット（＋は未達）／判定：実績≤ターゲットで達成。</div>'+foot(4));}
 
   /* 5 5W1H＋表 */
   {const w5=[['Why','なぜ発生？',OR],['What','何をする',NAVY],['Who','誰が',NAVY],['When','いつまで',NAVY],['How','どのように',NAVY]];let b='';
@@ -1169,21 +1165,21 @@ async function generate(){
   /* ===== Slide 4: 02 プロセスミスレート（ターゲット手入力＋実績=欠陥ユニット/手入力分母） ===== */
   {const s=pptx.addSlide(); topbar(s); section(s,'02','プロセスミスレート','Process Miss Rate');
    const GREEN='2FA37A', RED='C0392B';
-   const fmtPct=v=>v==null?'－.－％':((v*100).toFixed(3)+'％');
-   const fmtGap=v=>v==null?'GAP：＋/－ _._％':('GAP：'+(v>=0?'＋':'−')+(Math.abs(v*100).toFixed(3))+'％');
+   const fmtD=v=>v==null?'－':Math.round(v).toLocaleString();
+   const fmtGap=v=>v==null?'GAP：＋/－ _':('GAP：'+(v>=0?'＋':'−')+Math.round(Math.abs(v)).toLocaleString());
    const rows=computeMiss();
    rows.forEach((r,i)=>{const x=0.4+i*3.15,w=2.95,y=1.05,h=2.95;
      s.addShape(RR,{x,y,w,h,rectRadius:0.06,fill:{color:CARD},line:{color:'E6E9ED'}});
      s.addText(r.en,{x,y:y+0.12,w,h:0.32,align:'center',bold:true,color:NAVY,fontSize:17,fontFace:F});
      s.addText(r.jp,{x,y:y+0.46,w,h:0.24,align:'center',color:MUT,fontSize:11,fontFace:F});
-     // 実績率（大）
-     s.addText(fmtPct(r.aRate),{x,y:y+0.74,w,h:0.5,align:'center',bold:true,color:INK,fontSize:26,fontFace:F});
+     // 実績DPMO（大）
+     s.addText([{text:fmtD(r.aDpmo),options:{bold:true,color:INK,fontSize:26}},{text:' DPMO',options:{color:MUT,fontSize:11}}],{x,y:y+0.74,w,h:0.5,align:'center',fontFace:F});
      s.addText('実績 '+(r.aNum==null?'―':fmtI(r.aNum))+' / '+(r.aDen==null?'―':fmtI(r.aDen)),
        {x,y:y+1.22,w,h:0.24,align:'center',color:MUT,fontSize:9.5,fontFace:F});
-     // ターゲット
-     s.addText('Target '+fmtPct(r.tRate)+'　('+(r.tNum==null?'―':fmtI(r.tNum))+' / '+(r.tDen==null?'―':fmtI(r.tDen))+')',
+     // ターゲットDPMO
+     s.addText('Target '+fmtD(r.tDpmo)+' DPMO',
        {x,y:y+1.5,w,h:0.24,align:'center',color:MUT,fontSize:10,fontFace:F});
-     // GAPピル（達成=緑 / 未達=赤 / 未入力=グレー）
+     // GAPピル
      const pillCol=r.pass==null?'8A97AD':(r.pass?GREEN:RED);
      s.addShape(RR,{x:x+0.42,y:y+1.82,w:w-0.84,h:0.36,rectRadius:0.05,fill:{color:pillCol}});
      s.addText(fmtGap(r.gap),{x:x+0.42,y:y+1.82,w:w-0.84,h:0.36,align:'center',valign:'middle',bold:true,color:WHITE,fontSize:10,fontFace:F});
@@ -1192,7 +1188,7 @@ async function generate(){
      const jCol=r.pass==null?MUT:(r.pass?GREEN:RED);
      s.addText(jTxt,{x,y:y+2.28,w,h:0.3,align:'center',bold:r.pass!=null,color:jCol,fontSize:13,fontFace:F});
    });
-   s.addText('※ 実績率＝欠陥ユニット数（データ）÷実績分母（手入力・固定）。ターゲット率＝ターゲット分子÷分母（手入力）。GAP＝実績−ターゲット（＋は未達）／判定：実績率≤ターゲットで達成。未達プロセスのみ次スライドで要因分析。',
+   s.addText('※ 実績DPMO＝欠陥ユニット数（データ）÷実績分母（手入力・固定）×100万。ターゲットDPMOは手入力。GAP＝実績−ターゲット（＋は未達）／判定：実績≤ターゲットで達成。未達プロセスのみ次スライドで要因分析。',
      {x:0.4,y:4.2,w:9.2,h:0.5,fontSize:9.5,italic:true,color:MUT,fontFace:F});
    footer(s,4);
   }
