@@ -142,6 +142,15 @@ a.back{color:var(--accent);text-decoration:none;font-size:13px}
     </div>
   </details>
 
+  <details class="card" id="irdrCaccCard" open>
+    <summary class="chead" style="cursor:pointer">スライド6・8：IRDR / カウントアキュラシー設定　<span style="font-size:12px;color:var(--mut);font-weight:400">（分子・分母を手入力。表示は ％ / DPMO を切替。ターゲットは表示単位で手入力）</span></summary>
+    <div class="cbody">
+      <div id="irdrCaccWrap" style="overflow:auto">
+        <div class="warn" style="margin:0">データ読込後に表示されます。</div>
+      </div>
+    </div>
+  </details>
+
   <details class="card" id="itemsCard">
     <summary class="chead" style="cursor:pointer">2. 資料に含める項目　<span style="font-size:12px;color:var(--mut);font-weight:400">（出力は固定のICQA品質会議様式10枚。通常は変更不要）</span></summary>
     <div class="cbody">
@@ -677,11 +686,105 @@ function updateMissDerived(){
   });
 }
 
+/* =========================================================
+   スライド6 IRDR / スライド8 カウントアキュラシー（手入力設定）
+   ・実績＝分子÷分母（手入力）。ターゲット率は直接手入力。
+   ・表示単位は % / DPMO を全体トグルで切替（案Y）。
+     ％＝rate×100、DPMO＝rate×1,000,000。ターゲットも同単位で入力（案1・自動換算）。
+   ========================================================= */
+let UNIT='pct';                       // 'pct' | 'dpmo'
+const UNIT_FACTOR=()=>UNIT==='dpmo'?1e6:100;
+const UNIT_LABEL =()=>UNIT==='dpmo'?'DPMO':'％';
+// rate(0-1) → 表示文字列
+function fmtUnit(rate,dp){ if(rate==null) return UNIT==='dpmo'?'―':'－.－％';
+  const v=rate*UNIT_FACTOR(); return UNIT==='dpmo'?Math.round(v).toLocaleString():(v.toFixed(dp==null?3:dp)+'％'); }
+// ターゲット入力値(表示単位) → rate(0-1)
+function targetToRate(v){ const n=mNum(v); return n==null?null:(n/UNIT_FACTOR()); }
+
+const IRDR = {aNum:'', aDen:'', tRate:''};   // 実績分子/分母, ターゲット(表示単位)
+const CACC = {
+  SBC:{aNum:'',aDen:'',tRate:''},
+  CC: {aNum:'',aDen:'',tRate:''},
+  SRC:{aNum:'',aDen:'',tRate:''},
+};
+const CACC_ROWS=[['SBC','Simple Bin Count'],['CC','Cycle Count'],['SRC','Special Research Count']];
+
+function calcAR(aNum,aDen){ const n=mNum(aNum),d=mNum(aDen); return (n!=null&&d&&d>0)?n/d:null; }
+function judge(aRate,tRate){ return (aRate!=null&&tRate!=null)?(aRate<=tRate):null; }
+
+// 単位トグル＋IRDR/カウントの設定UIを描画
+function renderIrdrCacc(){
+  const host=$('#irdrCaccWrap'); if(!host) return;
+  if(!R){ host.innerHTML='<div class="warn" style="margin:0">データ読込後に表示されます。</div>'; return; }
+  const uPct=UNIT==='pct'?'pri':'', uDp=UNIT==='dpmo'?'pri':'';
+  const inp=(val,ph,k,f,w)=>'<input type="number" min="0" step="any" data-grp="'+k+'" data-f="'+f+'" value="'+(val===''?'':val)+'" placeholder="'+(ph||'')+'" style="width:'+(w||90)+'px;padding:5px 7px;border:1px solid #cfd8e6;border-radius:6px;font-size:12px">';
+
+  let h='<div class="row" style="margin-bottom:12px;gap:8px;align-items:center">'
+    +'<span style="font-size:12.5px;color:var(--mut);font-weight:700">表示単位：</span>'
+    +'<button class="btn '+uPct+'" id="unitPct" style="padding:5px 14px">％</button>'
+    +'<button class="btn '+uDp+'" id="unitDpmo" style="padding:5px 14px">DPMO</button>'
+    +'<span style="font-size:11.5px;color:var(--mut)">IRDR・カウントアキュラシーの実績／ターゲットに適用（ターゲットもこの単位で入力）</span>'
+    +'</div>';
+
+  // IRDR
+  const ir=calcAR(IRDR.aNum,IRDR.aDen), irT=targetToRate(IRDR.tRate), irPass=judge(ir,irT);
+  h+='<div style="font-weight:700;font-size:13.5px;margin:6px 0 6px">スライド6：IRDR 結果</div>';
+  h+='<table style="border-collapse:collapse;font-size:12.5px;min-width:640px"><thead><tr style="background:#1F4E79;color:#fff">'
+    +['実績 分子','実績 分母','実績（'+UNIT_LABEL()+'）','ターゲット（'+UNIT_LABEL()+'・手入力）','GAP','判定']
+      .map(t=>'<th style="padding:7px 9px;border:1px solid #2b4d70;font-weight:700">'+t+'</th>').join('')+'</tr></thead><tbody><tr>'
+    +'<td style="padding:6px 9px;border:1px solid #e2e7ee;text-align:center">'+inp(IRDR.aNum,'例:50','IRDR','aNum')+'</td>'
+    +'<td style="padding:6px 9px;border:1px solid #e2e7ee;text-align:center">'+inp(IRDR.aDen,'例:100000','IRDR','aDen')+'</td>'
+    +'<td style="padding:6px 9px;border:1px solid #e2e7ee;text-align:center;font-weight:700">'+fmtUnit(ir)+'</td>'
+    +'<td style="padding:6px 9px;border:1px solid #e2e7ee;text-align:center">'+inp(IRDR.tRate,(UNIT==='dpmo'?'例:500':'例:0.05'),'IRDR','tRate',100)+'</td>'
+    +'<td style="padding:6px 9px;border:1px solid #e2e7ee;text-align:center;font-weight:700;color:'+(irPass==null?'#6B7A90':(irPass?'#0F9D8F':'#C0392B'))+'">'+(ir==null||irT==null?'—':(UNIT==='dpmo'?Math.round((ir-irT)*1e6).toLocaleString():((ir-irT>=0?'＋':'−')+Math.abs((ir-irT)*100).toFixed(3)+'％')))+'</td>'
+    +'<td style="padding:6px 9px;border:1px solid #e2e7ee;text-align:center;font-weight:800;color:'+(irPass==null?'#6B7A90':(irPass?'#0F9D8F':'#C0392B'))+'">'+(irPass==null?'—':(irPass?'達成':'未達'))+'</td>'
+    +'</tr></tbody></table>';
+
+  // カウントアキュラシー
+  h+='<div style="font-weight:700;font-size:13.5px;margin:16px 0 6px">スライド8：カウントアキュラシー（SBC / CC / SRC）</div>';
+  h+='<table style="border-collapse:collapse;font-size:12.5px;min-width:720px"><thead><tr style="background:#1F4E79;color:#fff">'
+    +['区分','実績 分子','実績 分母','実績（'+UNIT_LABEL()+'）','ターゲット（'+UNIT_LABEL()+'）','GAP','判定']
+      .map(t=>'<th style="padding:7px 9px;border:1px solid #2b4d70;font-weight:700">'+t+'</th>').join('')+'</tr></thead><tbody>';
+  CACC_ROWS.forEach(([k,en])=>{
+    const st=CACC[k]; const ar=calcAR(st.aNum,st.aDen), tr=targetToRate(st.tRate), pass=judge(ar,tr);
+    const col=pass==null?'#6B7A90':(pass?'#0F9D8F':'#C0392B');
+    h+='<tr>'
+      +'<td style="padding:6px 9px;border:1px solid #e2e7ee;font-weight:700">'+k+'<span style="color:#6B7A90;font-weight:400;font-size:10px"><br>'+en+'</span></td>'
+      +'<td style="padding:6px 9px;border:1px solid #e2e7ee;text-align:center">'+inp(st.aNum,'例:5','CACC-'+k,'aNum')+'</td>'
+      +'<td style="padding:6px 9px;border:1px solid #e2e7ee;text-align:center">'+inp(st.aDen,'例:10000','CACC-'+k,'aDen')+'</td>'
+      +'<td style="padding:6px 9px;border:1px solid #e2e7ee;text-align:center;font-weight:700">'+fmtUnit(ar)+'</td>'
+      +'<td style="padding:6px 9px;border:1px solid #e2e7ee;text-align:center">'+inp(st.tRate,(UNIT==='dpmo'?'例:300':'例:0.03'),'CACC-'+k,'tRate',100)+'</td>'
+      +'<td style="padding:6px 9px;border:1px solid #e2e7ee;text-align:center;font-weight:700;color:'+col+'">'+(ar==null||tr==null?'—':(UNIT==='dpmo'?Math.round((ar-tr)*1e6).toLocaleString():((ar-tr>=0?'＋':'−')+Math.abs((ar-tr)*100).toFixed(3)+'％')))+'</td>'
+      +'<td style="padding:6px 9px;border:1px solid #e2e7ee;text-align:center;font-weight:800;color:'+col+'">'+(pass==null?'—':(pass?'達成':'未達'))+'</td>'
+      +'</tr>';
+  });
+  h+='</tbody></table>';
+  h+='<div style="font-size:11.5px;color:var(--mut);margin-top:8px">実績＝分子÷分母。ターゲットは表示単位（'+UNIT_LABEL()+'）で手入力。GAP＝実績−ターゲット（＋は未達）／判定：実績≤ターゲットで達成。</div>';
+
+  host.innerHTML=h;
+  // 単位トグル
+  $('#unitPct').onclick=()=>{ UNIT='pct'; renderIrdrCacc(); };
+  $('#unitDpmo').onclick=()=>{ UNIT='dpmo'; renderIrdrCacc(); };
+  // 入力反映
+  host.querySelectorAll('input[data-grp]').forEach(i=>{
+    i.oninput=()=>{
+      const g=i.dataset.grp, f=i.dataset.f;
+      if(g==='IRDR') IRDR[f]=i.value;
+      else if(g.startsWith('CACC-')) CACC[g.slice(5)][f]=i.value;
+      renderIrdrCacc();
+    };
+  });
+}
+// 派生値（プレビュー/pptxが読む）
+function irdrResult(){ const ar=calcAR(IRDR.aNum,IRDR.aDen), tr=targetToRate(IRDR.tRate); return {aNum:mNum(IRDR.aNum),aDen:mNum(IRDR.aDen),aRate:ar,tRate:tr,pass:judge(ar,tr)}; }
+function caccResult(){ return CACC_ROWS.map(([k,en])=>{ const st=CACC[k], ar=calcAR(st.aNum,st.aDen), tr=targetToRate(st.tRate); return {key:k,en,aNum:mNum(st.aNum),aDen:mNum(st.aDen),aRate:ar,tRate:tr,pass:judge(ar,tr)}; }); }
+
+
 async function recompute(){
   const site=$('#site').value, from=$('#from').value, to=$('#to').value;
   R=compute(site,from,to);
   await overlayFromLedgers(site,from,to);   // 取込ツール本体と同じ台帳値(欠陥管理=正)で上書き
-  renderSummary(); renderItems(); renderMiss();
+  renderSummary(); renderItems(); renderMiss(); renderIrdrCacc();
 }
 
 
@@ -907,14 +1010,20 @@ function buildPreview(){
    S(top+sect('02','ミスレート要因分析','Miss Rate Root Cause')+b
      +'<table style="position:absolute;left:40px;top:200px;width:920px;border-collapse:collapse"><tr>'+th('プロセス','Process')+th('要因','Why')+th('対策','What')+th('担当','Who')+th('期限','When')+th('方法','How')+'</tr>'+r+'</table>'+foot(5));}
 
-  /* 6 IRDR＋Defectサマリー（自動） */
+  /* 6 IRDR＋Defectサマリー（IRDR手入力・Defect自動） */
   {let rows='';(db.length?db.slice(0,5):[{type:'',cnt:'',pct:''}]).forEach((d,i)=>{const f=i%2?'#fff':BAND;rows+='<tr>'+td(d.type,0,f)+td(d.cnt===''?'':fmtI(d.cnt),1,f)+td(d.pct===''?'':d.pct.toFixed(1)+'%',1,f)+'</tr>';});
+   const ir=irdrResult();
+   const irVal=ir.aRate==null?(UNIT==='dpmo'?'―':'－.－%'):fmtUnit(ir.aRate,2);
+   const irTgt=ir.tRate==null?(UNIT==='dpmo'?'__':'__.__%'):fmtUnit(ir.tRate,2);
+   const irPassTxt=ir.pass==null?'':(ir.pass?'　達成':'　未達');
+   const irPassCol=ir.pass==null?MUT:(ir.pass?'#2FA37A':'#C0392B');
    S(top+sect('03','IRDR 結果','IRDR Results')
      +'<div style="position:absolute;left:50px;top:105px;width:380px;height:275px;background:'+CARD+';border:1px solid #E6E9ED;border-radius:8px"></div>'
      +'<div style="position:absolute;left:50px;top:125px;width:380px;text-align:center;font-size:20px;font-weight:700;color:'+NAVY+'">IRDR</div>'
      +'<div style="position:absolute;left:50px;top:165px;width:380px;text-align:center;font-size:10px;color:'+MUT+'">Inventory Record Defect Rate</div>'
-     +'<div style="position:absolute;left:50px;top:210px;width:380px;text-align:center;font-size:32px;font-weight:800;color:'+INK+'">－.－%</div>'
-     +'<div style="position:absolute;left:50px;top:285px;width:380px;text-align:center;font-size:11px;color:'+MUT+'">Target: __.__%</div>'
+     +'<div style="position:absolute;left:50px;top:205px;width:380px;text-align:center;font-size:32px;font-weight:800;color:'+INK+'">'+irVal+'</div>'
+     +'<div style="position:absolute;left:50px;top:252px;width:380px;text-align:center;font-size:10px;color:'+MUT+'">実績 '+(ir.aNum==null?'―':fmtI(ir.aNum))+' / '+(ir.aDen==null?'―':fmtI(ir.aDen))+'</div>'
+     +'<div style="position:absolute;left:50px;top:285px;width:380px;text-align:center;font-size:11px;color:'+MUT+'">Target: '+irTgt+'<span style="color:'+irPassCol+';font-weight:700">'+irPassTxt+'</span></div>'
      +'<div style="position:absolute;left:490px;top:105px;font-size:14px;font-weight:700;color:'+INK+'">Defect サマリー</div>'
      +'<table style="position:absolute;left:490px;top:140px;width:470px;border-collapse:collapse"><tr>'+th('要因 / Type','',BLUE)+th('件数','',BLUE)+th('割合','',BLUE)+'</tr>'+rows+'</table>'+foot(6));}
 
@@ -924,17 +1033,23 @@ function buildPreview(){
      +'<table style="position:absolute;left:40px;top:100px;width:920px;border-collapse:collapse"><tr>'+th('#')+th('Defect 要因','Type')+th('件数','Count')+th('割合','%')+th('Root Cause')+th('対策','Action')+th('担当','Who')+th('期限','When')+'</tr>'+r+'</table>'
      +'<div style="position:absolute;left:40px;top:440px;font-size:10px;font-style:italic;color:'+MUT+'">※ Pareto 上位要因を自動集計。Root Cause / What / Who / When は会議で記入。</div>'+foot(7));}
 
-  /* 8 カウントアキュラシー（空欄） */
-  {const cards=[['SBC','Simple Bin Count'],['CC','Cycle Count'],['SRC','Special Research Count']];let c='';
-   cards.forEach((cd,i)=>{const x=40+i*315;
+  /* 8 カウントアキュラシー（手入力・SBC/CC/SRC） */
+  {const ca=caccResult();let c='';
+   ca.forEach((r,i)=>{const x=40+i*315;
+     const val=r.aRate==null?(UNIT==='dpmo'?'―':'__.__%'):fmtUnit(r.aRate,2);
+     const tgt=r.tRate==null?(UNIT==='dpmo'?'__':'__.__%'):fmtUnit(r.tRate,2);
+     const jTxt=r.pass==null?'達成  /  未達':(r.pass?'達成':'未達');
+     const jCol=r.pass==null?MUT:(r.pass?'#2FA37A':'#C0392B');
+     const en=CACC_ROWS[i][1];
      c+='<div style="position:absolute;left:'+x+'px;top:105px;width:295px;height:275px;background:'+CARD+';border:1px solid #E6E9ED;border-radius:8px"></div>';
-     c+='<div style="position:absolute;left:'+x+'px;top:120px;width:295px;text-align:center;font-size:17px;font-weight:700;color:'+NAVY+'">'+cd[0]+'</div>';
-     c+='<div style="position:absolute;left:'+x+'px;top:150px;width:295px;text-align:center;font-size:10px;color:'+MUT+'">'+cd[1]+'</div>';
-     c+='<div style="position:absolute;left:'+x+'px;top:190px;width:295px;text-align:center;font-size:30px;font-weight:800;color:'+INK+'">__.__%</div>';
-     c+='<div style="position:absolute;left:'+x+'px;top:258px;width:295px;text-align:center;font-size:11px;color:'+MUT+'">Target: __.__%</div>';
-     c+='<div style="position:absolute;left:'+x+'px;top:300px;width:295px;text-align:center;font-size:12px;color:'+MUT+'">達成  /  未達</div>';});
+     c+='<div style="position:absolute;left:'+x+'px;top:120px;width:295px;text-align:center;font-size:17px;font-weight:700;color:'+NAVY+'">'+r.key+'</div>';
+     c+='<div style="position:absolute;left:'+x+'px;top:150px;width:295px;text-align:center;font-size:10px;color:'+MUT+'">'+en+'</div>';
+     c+='<div style="position:absolute;left:'+x+'px;top:185px;width:295px;text-align:center;font-size:28px;font-weight:800;color:'+INK+'">'+val+'</div>';
+     c+='<div style="position:absolute;left:'+x+'px;top:227px;width:295px;text-align:center;font-size:10px;color:'+MUT+'">実績 '+(r.aNum==null?'―':fmtI(r.aNum))+' / '+(r.aDen==null?'―':fmtI(r.aDen))+'</div>';
+     c+='<div style="position:absolute;left:'+x+'px;top:255px;width:295px;text-align:center;font-size:11px;color:'+MUT+'">Target: '+tgt+'</div>';
+     c+='<div style="position:absolute;left:'+x+'px;top:295px;width:295px;text-align:center;font-size:14px;font-weight:800;color:'+jCol+'">'+jTxt+'</div>';});
    S(top+sect('04','カウントアキュラシー','Count Accuracy')+c
-     +'<div style="position:absolute;left:40px;top:405px;font-size:10.5px;font-style:italic;color:'+MUT+'">※ カウント精度はツール未収集のため会議で記入。</div>'+foot(8));}
+     +'<div style="position:absolute;left:40px;top:405px;font-size:10.5px;font-style:italic;color:'+MUT+'">※ 実績＝分子÷分母（手入力）。ターゲットは表示単位で手入力。判定：実績≤ターゲットで達成。</div>'+foot(8));}
 
   /* 9 カウント未達要因（空欄） */
   {let r='';['SBC','CC','SRC'].forEach((t,i)=>{const f=i%2?'#fff':BAND;r+='<tr>'+td('<b>'+t+'</b>',0,f)+td('',1,f)+td('',1,f)+td('',1,f)+td('',1,f)+td('',1,f)+'</tr>';});
@@ -1097,15 +1212,20 @@ async function generate(){
    footer(s,5);
   }
 
-  /* ===== Slide 6: 03 IRDR結果（IRDR空欄＋Defectサマリー自動） ===== */
+  /* ===== Slide 6: 03 IRDR結果（IRDR手入力＋Defectサマリー自動） ===== */
   {const s=pptx.addSlide(); topbar(s); section(s,'03','IRDR 結果','IRDR Results');
+   const fmtU=(rate,dp)=>rate==null?(UNIT==='dpmo'?'―':'－.－%'):(UNIT==='dpmo'?Math.round(rate*1e6).toLocaleString():(rate*100).toFixed(dp==null?2:dp)+'%');
+   const ir=irdrResult();
+   const irPill=ir.pass==null?'8A97AD':(ir.pass?'2FA37A':'C0392B');
+   const irJ=ir.pass==null?'達成 / 未達':(ir.pass?'達成':'未達');
    s.addShape(RR,{x:0.5,y:1.05,w:3.8,h:2.75,rectRadius:0.06,fill:{color:CARD},line:{color:'E6E9ED'}});
-   s.addText('IRDR',{x:0.5,y:1.25,w:3.8,h:0.4,align:'center',bold:true,color:NAVY,fontSize:20,fontFace:F});
-   s.addText('Inventory Record Defect Rate',{x:0.5,y:1.7,w:3.8,h:0.28,align:'center',color:MUT,fontSize:10,fontFace:F});
-   s.addText('－.－%',{x:0.5,y:2.15,w:3.8,h:0.6,align:'center',bold:true,color:INK,fontSize:32,fontFace:F});
-   s.addText('Target: __.__%',{x:0.5,y:2.85,w:3.8,h:0.28,align:'center',color:MUT,fontSize:11,fontFace:F});
-   s.addShape(RR,{x:1.3,y:3.2,w:2.2,h:0.4,rectRadius:0.05,fill:{color:'8A97AD'}});
-   s.addText('達成 / 未達',{x:1.3,y:3.2,w:2.2,h:0.4,align:'center',valign:'middle',bold:true,color:WHITE,fontSize:11,fontFace:F});
+   s.addText('IRDR',{x:0.5,y:1.2,w:3.8,h:0.4,align:'center',bold:true,color:NAVY,fontSize:20,fontFace:F});
+   s.addText('Inventory Record Defect Rate',{x:0.5,y:1.62,w:3.8,h:0.28,align:'center',color:MUT,fontSize:10,fontFace:F});
+   s.addText(fmtU(ir.aRate),{x:0.5,y:2.0,w:3.8,h:0.55,align:'center',bold:true,color:INK,fontSize:30,fontFace:F});
+   s.addText('実績 '+(ir.aNum==null?'―':fmtI(ir.aNum))+' / '+(ir.aDen==null?'―':fmtI(ir.aDen)),{x:0.5,y:2.55,w:3.8,h:0.26,align:'center',color:MUT,fontSize:10,fontFace:F});
+   s.addText('Target: '+fmtU(ir.tRate),{x:0.5,y:2.82,w:3.8,h:0.28,align:'center',color:MUT,fontSize:11,fontFace:F});
+   s.addShape(RR,{x:1.3,y:3.2,w:2.2,h:0.4,rectRadius:0.05,fill:{color:irPill}});
+   s.addText(irJ,{x:1.3,y:3.2,w:2.2,h:0.4,align:'center',valign:'middle',bold:true,color:WHITE,fontSize:11,fontFace:F});
    // Defectサマリー（自動: 種別×件数×割合）
    s.addText('Defect サマリー',{x:4.9,y:1.05,w:4,h:0.35,bold:true,color:INK,fontSize:14,fontFace:F});
    const db=defectBreakdown(R).slice(0,5);
@@ -1141,18 +1261,22 @@ async function generate(){
    footer(s,7);
   }
 
-  /* ===== Slide 8: 04 カウントアキュラシー（空欄・ツール未収集） ===== */
+  /* ===== Slide 8: 04 カウントアキュラシー（手入力・SBC/CC/SRC） ===== */
   {const s=pptx.addSlide(); topbar(s); section(s,'04','カウントアキュラシー','Count Accuracy');
-   const cards=[['SBC','Simple Bin Count'],['CC','Cycle Count'],['SRC','Special Research Count']];
-   cards.forEach((c,i)=>{const x=0.4+i*3.15,w=2.95,y=1.05,h=2.75;
+   const fmtU=(rate)=>rate==null?(UNIT==='dpmo'?'―':'__.__%'):(UNIT==='dpmo'?Math.round(rate*1e6).toLocaleString():(rate*100).toFixed(2)+'%');
+   const ca=caccResult();
+   ca.forEach((r,i)=>{const x=0.4+i*3.15,w=2.95,y=1.05,h=2.75;
+     const jCol=r.pass==null?MUT:(r.pass?'2FA37A':'C0392B');
+     const jTxt=r.pass==null?'達成  /  未達':(r.pass?'達成':'未達');
      s.addShape(RR,{x,y,w,h,rectRadius:0.06,fill:{color:CARD},line:{color:'E6E9ED'}});
-     s.addText(c[0],{x,y:y+0.15,w,h:0.35,align:'center',bold:true,color:NAVY,fontSize:17,fontFace:F});
-     s.addText(c[1],{x,y:y+0.52,w,h:0.28,align:'center',color:MUT,fontSize:10,fontFace:F});
-     s.addText('__.__%',{x,y:y+0.95,w,h:0.6,align:'center',bold:true,color:INK,fontSize:30,fontFace:F});
-     s.addText('Target: __.__%',{x,y:y+1.62,w,h:0.28,align:'center',color:MUT,fontSize:11,fontFace:F});
-     s.addText('達成  /  未達',{x,y:y+2.05,w,h:0.3,align:'center',color:MUT,fontSize:12,fontFace:F});
+     s.addText(r.key,{x,y:y+0.13,w,h:0.35,align:'center',bold:true,color:NAVY,fontSize:17,fontFace:F});
+     s.addText(CACC_ROWS[i][1],{x,y:y+0.5,w,h:0.28,align:'center',color:MUT,fontSize:10,fontFace:F});
+     s.addText(fmtU(r.aRate),{x,y:y+0.85,w,h:0.55,align:'center',bold:true,color:INK,fontSize:28,fontFace:F});
+     s.addText('実績 '+(r.aNum==null?'―':fmtI(r.aNum))+' / '+(r.aDen==null?'―':fmtI(r.aDen)),{x,y:y+1.42,w,h:0.26,align:'center',color:MUT,fontSize:10,fontFace:F});
+     s.addText('Target: '+fmtU(r.tRate),{x,y:y+1.7,w,h:0.28,align:'center',color:MUT,fontSize:11,fontFace:F});
+     s.addText(jTxt,{x,y:y+2.05,w,h:0.3,align:'center',bold:true,color:jCol,fontSize:12,fontFace:F});
    });
-   s.addText('※ 未達タイプのみ次スライドで要因分析。カウント精度はツール未収集のため会議で記入。',
+   s.addText('※ 実績＝分子÷分母（手入力）。ターゲットは表示単位で手入力。判定：実績≤ターゲットで達成。未達タイプは次スライドで要因分析。',
      {x:0.4,y:4.05,w:9.2,h:0.3,fontSize:10.5,italic:true,color:MUT,fontFace:F});
    footer(s,8);
   }
