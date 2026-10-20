@@ -4,6 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>HFO1 品質×生産性 統合ダッシュボード</title>
+<!-- build: v192 (2026-10-20) 恒久運用向け肥大化対策: 起動時にQSTORE生明細を12週でpurge / 欠陥台帳の古い未編集行はWorker側で圧縮(自由記述を間引き・集計精度は維持) -->
+<meta name="app-build" content="v192-2026-10-20">
+
 <style>
 :root{
   --ink:#12213a; --ink2:#3a4c68; --mut:#7b8aa3; --line:#dfe5ee;
@@ -884,6 +887,31 @@ function getByDataset(dsId){
 }
 function countQual(){ return new Promise(res=>{const r=qtx('readonly').count();r.onsuccess=()=>res(r.result);}); }
 function clearQual(){ return new Promise(res=>{const r=qtx('readwrite').clear();r.onsuccess=()=>res();}); }
+/* [v192] 生明細(QSTORE)の年齢purge：業務日が QUAL_KEEP_DAYS(=12週) より古い生データを起動時に自動削除。
+   ・R2の raw 層(12週で自動削除)と保持期間を合わせ、取込端末ローカルIndexedDBの無制限肥大化を防ぐ。
+   ・閲覧端末(案A)は元々QSTORE未保存なので実質no-op。_date 未設定の行は安全側で残す。
+   ・サーバ台帳(集計)は別管理のため影響なし。古い集計は台帳側に恒久保存済み。 */
+const QUAL_KEEP_DAYS = 84;
+function purgeOldQual(days){
+  return new Promise(res=>{
+    try{
+      if(!db || !db.objectStoreNames.contains(QSTORE)){ res({del:0,scan:0}); return; }
+      const cut=new Date(); cut.setDate(cut.getDate()-(days||QUAL_KEEP_DAYS));
+      const cutStr=cut.toISOString().slice(0,10);   // YYYY-MM-DD
+      let del=0, scan=0;
+      const r=qtx('readwrite').openCursor();
+      r.onsuccess=e=>{
+        const c=e.target.result;
+        if(!c){ res({del,scan,cutStr}); return; }
+        scan++;
+        const d=c.value && c.value._date;
+        if(d && d<cutStr){ c.delete(); del++; }
+        c.continue();
+      };
+      r.onerror=()=>res({del,scan});
+    }catch(e){ res({del:0,scan:0}); }
+  });
+}
 function loadMaster(){
   return new Promise(res=>{
     const out=[]; const r=db.transaction(MSTORE,'readonly').objectStore(MSTORE).openCursor();
@@ -2037,9 +2065,9 @@ function buildQReportFromLedgers(L, from, to, site){
   ];
 
   // ---- raw（defects 由来のスリム行。renderTradeoff＋ドリルダウンが読む）----
-  const rawSip=stowDef.map(r=>({_date:r.d, user_logins:r.acct, quantity:num(r.qty), 種別:r.type, エリア:r.area, ASIN:r.asin||'', 品目:r.item, 責任所在:r.process}));
-  const rawPm =df.filter(r=>r.process==='Pick').map(r=>({_date:r.d, error_person:r.acct, error_unit:num(r.qty), error_type:r.type, pick_area_name:r.area, ASIN:r.asin||'', 品目:r.item}));
-  const rawMf =shelfDef.map(r=>({_date:r.d, bin_module:r.area, gross_units:num(r.qty), ASIN:r.asin||'', 品目:r.item}));
+  const rawSip=stowDef.map(r=>({_date:r.d, user_logins:r.acct||'', quantity:num(r.qty), 種別:r.type, エリア:r.area||'', ASIN:r.asin||'', 品目:r.item||'', 責任所在:r.process}));
+  const rawPm =df.filter(r=>r.process==='Pick').map(r=>({_date:r.d, error_person:r.acct||'', error_unit:num(r.qty), error_type:r.type, pick_area_name:r.area||'', ASIN:r.asin||'', 品目:r.item||''}));
+  const rawMf =shelfDef.map(r=>({_date:r.d, bin_module:r.area||'', gross_units:num(r.qty), ASIN:r.asin||'', 品目:r.item||''}));
 
   // ---- FR紐付け ----
   const empl2acct=emplidToAcct;
@@ -4772,6 +4800,11 @@ async function init(){
   Prog.begin('起動中…', null);
   Prog.setPhaseIndet('データベースを初期化中…');
   await openDB();
+  // [v192] 起動時に12週より古い生明細(QSTORE)を自動削除（ローカル肥大化の抑制）
+  try{
+    const pg=await purgeOldQual(QUAL_KEEP_DAYS);
+    if(pg && pg.del>0) logLine('[整理] '+QUAL_KEEP_DAYS+'日より古い生明細 '+pg.del+'件を自動削除（ローカル軽量化）','dim');
+  }catch(e){}
   Prog.setPhaseIndet('マスタを読込中…');
   await loadMaster();
   await reloadFR();
